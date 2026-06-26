@@ -5,84 +5,124 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>간이 GIS 핀 수집기</title>
     <style>
-        body { font-family: sans-serif; padding: 20px; text-align: center; }
-        button { padding: 15px 30px; font-size: 16px; margin: 10px; cursor: pointer; }
-        table { width: 100%; margin-top: 20px; border-collapse: collapse; }
-        th, td { border: 1px solid #ddd; padding: 8px; text-align: center; }
+        body { font-family: sans-serif; padding: 20px; text-align: center; background-color: #f9f9f9; }
+        .container { max-width: 600px; margin: 0 auto; background: white; padding: 20px; border-radius: 10px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
+        input { padding: 12px; width: 80%; font-size: 16px; margin-bottom: 10px; border: 1px solid #ddd; border-radius: 5px; }
+        button { padding: 12px 24px; font-size: 16px; margin: 5px; cursor: pointer; border: none; border-radius: 5px; font-weight: bold; }
+        .btn-add { background-color: #007BFF; color: white; width: 85%; }
+        .btn-down { background-color: #4CAF50; color: white; width: 85%; margin-top: 10px; }
+        .btn-delete { background-color: #dc3545; color: white; padding: 5px 10px; font-size: 13px; border-radius: 3px; }
+        table { width: 100%; margin-top: 20px; border-collapse: collapse; font-size: 14px; }
+        th, td { border: 1px solid #ddd; padding: 10px; text-align: center; }
+        th { background-color: #f2f2f2; }
+        .no-data { color: #888; font-style: italic; }
     </style>
 </head>
 <body>
 
+<div class="container">
     <h2>📍 내 위치 GIS 핀 수집기</h2>
-    <input type="text" id="pinName" placeholder="핀 이름 입력 (예: 조사지점A)" style="padding: 10px; width: 80%; font-size: 16px;"><br>
-    <button onclick="addCurrentLocation()">현재 위치 핀 찍기</button>
-    <button onclick="downloadCSV()" style="background-color: #4CAF50; color: white;">CSV 다운로드</button>
+    <input type="text" id="pinName" placeholder="핀 이름 입력 (예: 조사지점A)"><br>
+    <button class="btn-add" onclick="addCurrentLocation()">현재 위치 핀 찍기</button>
+    <button class="btn-down" onclick="downloadCSV()">CSV 다운로드</button>
 
     <table id="logTable">
         <thead>
             <tr>
                 <th>이름</th>
-                <th>위도(Latitude)</th>
-                <th>경도(Longitude)</th>
+                <th>위도(Lat)</th>
+                <th>경도(Lng)</th>
+                <th>관리</th>
             </tr>
         </thead>
-        <tbody></tbody>
+        <tbody>
+            <tr id="emptyRow"><td colspan="4" class="no-data">등록된 위치 정보가 없습니다.</td></tr>
+        </tbody>
     </table>
+</div>
 
-    <script>
-        let pinList = [];
+<script>
+    let pinList = [];
 
-        function addCurrentLocation() {
-            const nameInput = document.getElementById('pinName');
-            const name = nameInput.value.trim() || `포인트_${pinList.length + 1}`;
+    function addCurrentLocation() {
+        const nameInput = document.getElementById('pinName');
+        const name = nameInput.value.trim() || `포인트_${pinList.length + 1}`;
 
-            if (!navigator.geolocation) {
-                alert("이 브라우저는 GPS를 지원하지 않습니다.");
-                return;
-            }
-
-            navigator.geolocation.getCurrentPosition((position) => {
-                const lat = position.coords.latitude;
-                const lng = position.coords.longitude;
-
-                // 리스트에 추가
-                pinList.push({ name, lat, lng });
-
-                // 테이블에 표시
-                const tbody = document.getElementById('logTable').querySelector('tbody');
-                const row = `<tr><td>${name}</td><td>${lat}</td><td>${lng}</td></tr>`;
-                tbody.innerHTML += row;
-
-                // 초기화
-                nameInput.value = '';
-                alert(`[${name}] 핀이 성공적으로 찍혔습니다.`);
-            }, (err) => {
-                alert("GPS 위치를 가져오는데 실패했습니다: " || err.message);
-            }, { enableHighAccuracy: true });
+        if (!navigator.geolocation) {
+            alert("이 브라우저는 GPS를 지원하지 않습니다.");
+            return;
         }
 
-        function downloadCSV() {
-            if (pinList.length === 0) {
-                alert("다운로드할 데이터가 없습니다.");
-                return;
-            }
+        navigator.geolocation.getCurrentPosition((position) => {
+            const lat = position.coords.latitude;
+            const lng = position.coords.longitude;
 
-            // 구글 맵 인식용 헤더 설정 (BOM 추가로 한글 깨짐 방지)
-            let csvContent = "\uFEFFName,Latitude,Longitude\n";
-            
-            pinList.forEach(pin => {
-                csvContent += `"${pin.name}",${pin.lat},${pin.lng}\n`;
-            });
+            // 데이터 배열에 추가
+            pinList.push({ name, lat, lng });
 
-            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-            const url = URL.createObjectURL(blob);
-            const link = document.createElement("a");
-            link.setAttribute("href", url);
-            link.setAttribute("download", "my_gis_pins.csv");
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
+            // 화면 테이블 갱신
+            updateTable();
+
+            // 입력창 초기화 및 알림
+            nameInput.value = '';
+        }, (err) => {
+            alert("GPS 위치를 가져오는데 실패했습니다: " + err.message);
+        }, { enableHighAccuracy: true });
+    }
+
+    // 특정 인덱스의 핀을 삭제하는 함수
+    function deletePin(index) {
+        if (confirm(`'${pinList[index].name}' 위치를 삭제하시겠습니까?`)) {
+            pinList.splice(index, 1); // 배열에서 제거
+            updateTable(); // 테이블 다시 그리기
         }
-    </script>
+    }
+
+    // 테이블 UI를 배열 데이터에 맞게 새로 고치는 함수
+    function updateTable() {
+        const tbody = document.getElementById('logTable').querySelector('tbody');
+        tbody.innerHTML = ''; // 기존 내용 싹 비우기
+
+        if (pinList.length === 0) {
+            tbody.innerHTML = `<tr id="emptyRow"><td colspan="4" class="no-data">등록된 위치 정보가 없습니다.</td></tr>`;
+            return;
+        }
+
+        pinList.forEach((pin, index) => {
+            const row = `
+                <tr>
+                    <td><strong>${pin.name}</strong></td>
+                    <td>${pin.lat.toFixed(6)}</td>
+                    <td>${pin.lng.toFixed(6)}</td>
+                    <td><button class="btn-delete" onclick="deletePin(${index})">삭제</button></td>
+                </tr>
+            `;
+            tbody.innerHTML += row;
+        });
+    }
+
+    function downloadCSV() {
+        if (pinList.length === 0) {
+            alert("다운로드할 데이터가 없습니다.");
+            return;
+        }
+
+        // 구글 맵 인식용 헤더 설정 (BOM 추가로 한글 깨짐 방지)
+        let csvContent = "\uFEFFName,Latitude,Longitude\n";
+        
+        pinList.forEach(pin => {
+            csvContent += `"${pin.name}",${pin.lat},${pin.lng}\n`;
+        });
+
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.setAttribute("href", url);
+        link.setAttribute("download", "my_gis_pins.csv");
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    }
+</script>
 </body>
 </html>
