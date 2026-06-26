@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>간이 GIS 핀 수집기</title>
+    <style>
+        body { font-family: sans-serif; padding: 20px; text-align: center; }
+        button { padding: 15px 30px; font-size: 16px; margin: 10px; cursor: pointer; }
+        table { width: 100%; margin-top: 20px; border-collapse: collapse; }
+        th, td { border: 1px solid #ddd; padding: 8px; text-align: center; }
+    </style>
+</head>
+<body>
+
+    <h2>📍 내 위치 GIS 핀 수집기</h2>
+    <input type="text" id="pinName" placeholder="핀 이름 입력 (예: 조사지점A)" style="padding: 10px; width: 80%; font-size: 16px;"><br>
+    <button onclick="addCurrentLocation()">현재 위치 핀 찍기</button>
+    <button onclick="downloadCSV()" style="background-color: #4CAF50; color: white;">CSV 다운로드</button>
+
+    <table id="logTable">
+        <thead>
+            <tr>
+                <th>이름</th>
+                <th>위도(Latitude)</th>
+                <th>경도(Longitude)</th>
+            </tr>
+        </thead>
+        <tbody></tbody>
+    </table>
+
+    <script>
+        let pinList = [];
+
+        function addCurrentLocation() {
+            const nameInput = document.getElementById('pinName');
+            const name = nameInput.value.trim() || `포인트_${pinList.length + 1}`;
+
+            if (!navigator.geolocation) {
+                alert("이 브라우저는 GPS를 지원하지 않습니다.");
+                return;
+            }
+
+            navigator.geolocation.getCurrentPosition((position) => {
+                const lat = position.coords.latitude;
+                const lng = position.coords.longitude;
+
+                // 리스트에 추가
+                pinList.push({ name, lat, lng });
+
+                // 테이블에 표시
+                const tbody = document.getElementById('logTable').querySelector('tbody');
+                const row = `<tr><td>${name}</td><td>${lat}</td><td>${lng}</td></tr>`;
+                tbody.innerHTML += row;
+
+                // 초기화
+                nameInput.value = '';
+                alert(`[${name}] 핀이 성공적으로 찍혔습니다.`);
+            }, (err) => {
+                alert("GPS 위치를 가져오는데 실패했습니다: " || err.message);
+            }, { enableHighAccuracy: true });
+        }
+
+        function downloadCSV() {
+            if (pinList.length === 0) {
+                alert("다운로드할 데이터가 없습니다.");
+                return;
+            }
+
+            // 구글 맵 인식용 헤더 설정 (BOM 추가로 한글 깨짐 방지)
+            let csvContent = "\uFEFFName,Latitude,Longitude\n";
+            
+            pinList.forEach(pin => {
+                csvContent += `"${pin.name}",${pin.lat},${pin.lng}\n`;
+            });
+
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement("a");
+            link.setAttribute("href", url);
+            link.setAttribute("download", "my_gis_pins.csv");
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+    </script>
+</body>
+</html>
