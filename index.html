@@ -3,88 +3,129 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>간이 GIS 핀 수집기</title>
+    <title>안전한 로컬 GIS 핀 수집기</title>
     <style>
-        body { font-family: sans-serif; padding: 20px; text-align: center; background-color: #f9f9f9; }
-        .container { max-width: 600px; margin: 0 auto; background: white; padding: 20px; border-radius: 10px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
-        input { padding: 12px; width: 80%; font-size: 16px; margin-bottom: 10px; border: 1px solid #ddd; border-radius: 5px; }
-        button { padding: 12px 24px; font-size: 16px; margin: 5px; cursor: pointer; border: none; border-radius: 5px; font-weight: bold; }
-        .btn-add { background-color: #007BFF; color: white; width: 85%; }
-        .btn-down { background-color: #4CAF50; color: white; width: 85%; margin-top: 10px; }
-        .btn-delete { background-color: #dc3545; color: white; padding: 5px 10px; font-size: 13px; border-radius: 3px; }
-        table { width: 100%; margin-top: 20px; border-collapse: collapse; font-size: 14px; }
-        th, td { border: 1px solid #ddd; padding: 10px; text-align: center; }
-        th { background-color: #f2f2f2; }
-        .no-data { color: #888; font-style: italic; }
+        body { font-family: sans-serif; padding: 20px; text-align: center; background-color: #f8fafc; color: #1e293b; }
+        .container { max-width: 600px; margin: 0 auto; background: white; padding: 24px; border-radius: 12px; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1); }
+        h2 { margin-top: 0; color: #0f172a; font-size: 22px; }
+        .notice { font-size: 12px; color: #64748b; background-color: #f1f5f9; padding: 10px; border-radius: 6px; margin-bottom: 20px; text-align: left; line-height: 1.5; }
+        input { padding: 14px; width: 100%; font-size: 16px; margin-bottom: 12px; border: 1px solid #cbd5e1; border-radius: 6px; box-sizing: border-box; }
+        button { padding: 14px 24px; font-size: 16px; margin: 6px 0; cursor: pointer; border: none; border-radius: 6px; font-weight: bold; width: 100%; box-sizing: border-box; transition: all 0.15s; }
+        .btn-add { background-color: #2563eb; color: white; }
+        .btn-add:active { background-color: #1d4ed8; }
+        .btn-down { background-color: #059669; color: white; }
+        .btn-down:active { background-color: #047857; }
+        .btn-clear { background-color: #64748b; color: white; font-size: 14px; padding: 10px; margin-top: 15px; }
+        .btn-delete { background-color: #ef4444; color: white; padding: 6px 12px; font-size: 13px; border-radius: 4px; width: auto; }
+        table { width: 100%; margin-top: 24px; border-collapse: collapse; font-size: 14px; }
+        th, td { border: 1px solid #e2e8f0; padding: 12px; text-align: center; }
+        th { background-color: #f8fafc; color: #64748b; }
+        .no-data { color: #94a3b8; font-style: italic; }
+        .count-badge { background-color: #e2e8f0; padding: 2px 8px; border-radius: 10px; font-size: 14px; }
     </style>
 </head>
 <body>
 
 <div class="container">
-    <h2>📍 내 위치 GIS 핀 수집기</h2>
-    <input type="text" id="pinName" placeholder="핀 이름 입력 (예: 조사지점A)"><br>
-    <button class="btn-add" onclick="addCurrentLocation()">현재 위치 핀 찍기</button>
-    <button class="btn-down" onclick="downloadCSV()">CSV 다운로드</button>
+    <h2>📍 로컬 GIS 핀 수집기 <span class="count-badge" id="pinCount">0</span></h2>
+    <div class="notice">
+        🔒 <b>보안 안내:</b> 이 앱은 외부 서버로 데이터를 보내지 않고, 현재 스마트폰 내부 메모리에만 안전하게 저장됩니다. 조사가 끝나면 반드시 <b>[CSV 다운로드]</b>를 눌러 파일을 확보하세요.
+    </div>
+
+    <input type="text" id="pinName" placeholder="핀 이름 입력 (예: 교량A_지점1)"><br>
+    <button class="btn-add" id="addBtn" onclick="addCurrentLocation()">현재 위치 핀 찍기</button>
+    <button class="btn-down" onclick="downloadCSV()">CSV 파일 다운로드</button>
 
     <table id="logTable">
         <thead>
             <tr>
                 <th>이름</th>
-                <th>위도(Lat)</th>
-                <th>경도(Lng)</th>
+                <th>위도/경도</th>
                 <th>관리</th>
             </tr>
         </thead>
         <tbody>
-            <tr id="emptyRow"><td colspan="4" class="no-data">등록된 위치 정보가 없습니다.</td></tr>
+            <tr id="emptyRow"><td colspan="3" class="no-data">등록된 위치 정보가 없습니다.</td></tr>
         </tbody>
     </table>
+
+    <button class="btn-clear" onclick="clearAllData()">전체 데이터 초기화</button>
 </div>
 
 <script>
-    let pinList = [];
+    // 스마트폰 내부 저장소(LocalStorage)에서 데이터 로드
+    let pinList = JSON.parse(localStorage.getItem('myGisPins_Local')) || [];
+    
+    // 시작 시 테이블 갱신
+    updateTable();
 
     function addCurrentLocation() {
         const nameInput = document.getElementById('pinName');
         const name = nameInput.value.trim() || `포인트_${pinList.length + 1}`;
+        const addBtn = document.getElementById('addBtn');
 
         if (!navigator.geolocation) {
             alert("이 브라우저는 GPS를 지원하지 않습니다.");
             return;
         }
 
+        addBtn.disabled = true;
+        addBtn.innerText = "🌐 GPS 신호 수신 중...";
+
         navigator.geolocation.getCurrentPosition((position) => {
             const lat = position.coords.latitude;
             const lng = position.coords.longitude;
 
-            // 데이터 배열에 추가
+            // 배열에 추가
             pinList.push({ name, lat, lng });
-
-            // 화면 테이블 갱신
+            
+            // 스마트폰 메모리에 즉시 저장
+            saveToStorage();
             updateTable();
-
-            // 입력창 초기화 및 알림
+            
             nameInput.value = '';
+            addBtn.disabled = false;
+            addBtn.innerText = "현재 위치 핀 찍기";
         }, (err) => {
-            alert("GPS 위치를 가져오는데 실패했습니다: " + err.message);
-        }, { enableHighAccuracy: true });
+            alert("GPS 위치를 가져오는데 실패했습니다.\n설정에서 브라우저의 '위치 권한'을 허용했는지 확인해 주세요.\n오류내용: " + err.message);
+            addBtn.disabled = false;
+            addBtn.innerText = "현재 위치 핀 찍기";
+        }, { 
+            enableHighAccuracy: true, // 높은 정밀도 요구
+            timeout: 10000,           // 10초 내 신호 없으면 타임아웃
+            maximumAge: 0             // 캐시된 위치 사용 안 함
+        });
     }
 
-    // 특정 인덱스의 핀을 삭제하는 함수
     function deletePin(index) {
         if (confirm(`'${pinList[index].name}' 위치를 삭제하시겠습니까?`)) {
-            pinList.splice(index, 1); // 배열에서 제거
-            updateTable(); // 테이블 다시 그리기
+            pinList.splice(index, 1);
+            saveToStorage();
+            updateTable();
         }
     }
 
-    // 테이블 UI를 배열 데이터에 맞게 새로 고치는 함수
+    function clearAllData() {
+        if (confirm("⚠️ 정말로 저장된 모든 데이터를 삭제하시겠습니까?\n삭제 후에는 복구가 불가능합니다.")) {
+            pinList = [];
+            saveToStorage();
+            updateTable();
+        }
+    }
+
+    function saveToStorage() {
+        localStorage.setItem('myGisPins_Local', JSON.stringify(pinList));
+    }
+
     function updateTable() {
         const tbody = document.getElementById('logTable').querySelector('tbody');
-        tbody.innerHTML = ''; // 기존 내용 싹 비우기
+        const countBadge = document.getElementById('pinCount');
+        tbody.innerHTML = '';
+        
+        countBadge.innerText = pinList.length;
 
         if (pinList.length === 0) {
-            tbody.innerHTML = `<tr id="emptyRow"><td colspan="4" class="no-data">등록된 위치 정보가 없습니다.</td></tr>`;
+            tbody.innerHTML = `<tr id="emptyRow"><td colspan="3" class="no-data">등록된 위치 정보가 없습니다.</td></tr>`;
             return;
         }
 
@@ -92,8 +133,7 @@
             const row = `
                 <tr>
                     <td><strong>${pin.name}</strong></td>
-                    <td>${pin.lat.toFixed(6)}</td>
-                    <td>${pin.lng.toFixed(6)}</td>
+                    <td style="font-size:12px; color:#475569; font-family:monospace;">${pin.lat.toFixed(6)}<br>${pin.lng.toFixed(6)}</td>
                     <td><button class="btn-delete" onclick="deletePin(${index})">삭제</button></td>
                 </tr>
             `;
@@ -107,9 +147,8 @@
             return;
         }
 
-        // 구글 맵 인식용 헤더 설정 (BOM 추가로 한글 깨짐 방지)
+        // 구글 마이맵 인식용 표준 헤더 (한글 깨짐 방지 BOM 포함)
         let csvContent = "\uFEFFName,Latitude,Longitude\n";
-        
         pinList.forEach(pin => {
             csvContent += `"${pin.name}",${pin.lat},${pin.lng}\n`;
         });
