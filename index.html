@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>안전한 로컬 GIS 핀 수집기</title>
+    <title>서버 저장형 GIS 핀 수집기</title>
     <style>
         body { font-family: sans-serif; padding: 15px; text-align: center; background-color: #f8fafc; color: #1e293b; margin: 0; }
         .container { max-width: 500px; margin: 0 auto; background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1); box-sizing: border-box; }
@@ -13,17 +13,17 @@
         button { padding: 14px 24px; font-size: 16px; margin: 5px 0; cursor: pointer; border: none; border-radius: 6px; font-weight: bold; width: 100%; box-sizing: border-box; }
         .btn-add { background-color: #2563eb; color: white; }
         .btn-add:active { background-color: #1d4ed8; }
-        .btn-down { background-color: #059669; color: white; }
-        .btn-down:active { background-color: #047857; }
         .btn-clear { background-color: #94a3b8; color: white; font-size: 13px; padding: 8px; margin-top: 20px; width: auto; display: inline-block; }
         
-        /* 테이블 대신 모바일에 최적화된 카드 스타일 목록 */
         .pin-list-title { text-align: left; font-weight: bold; margin-top: 20px; color: #475569; border-bottom: 2px solid #e2e8f0; padding-bottom: 5px; }
         #pinContainer { margin-top: 10px; text-align: left; }
         .pin-card { background: #f8fafc; border: 1px solid #e2e8f0; padding: 12px; border-radius: 8px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; }
         .pin-info { flex: 1; }
         .pin-title { font-weight: bold; font-size: 15px; color: #0f172a; margin-bottom: 4px; }
         .pin-coords { font-size: 12px; color: #64748b; font-family: monospace; }
+        .status-badge { font-size: 11px; padding: 2px 6px; border-radius: 4px; font-weight: normal; margin-left: 5px; }
+        .status-ok { background-color: #dcfce7; color: #166534; }
+        .status-ready { background-color: #fee2e2; color: #991b1b; }
         .btn-delete { background-color: #ef4444; color: white; padding: 8px 14px; font-size: 13px; border-radius: 6px; width: auto; font-weight: bold; margin-left: 10px; }
         .no-data { color: #94a3b8; font-style: italic; text-align: center; padding: 20px; }
         .count-badge { background-color: #e2e8f0; padding: 2px 8px; border-radius: 10px; font-size: 14px; }
@@ -32,26 +32,25 @@
 <body>
 
 <div class="container">
-    <h2>📍 로컬 GIS 핀 수집기 <span class="count-badge" id="pinCount">0</span></h2>
+    <h2>📍 서버 저장형 GIS 핀 수집기 <span class="count-badge" id="pinCount">0</span></h2>
     <div class="notice">
-        🔒 외부 서버 연동 없이 폰 메모리에만 저장되는 안전한 모드입니다. 조사가 끝나면 <b>[CSV 파일 다운로드]</b>를 눌러 꼭 파일을 저장하세요.
+        ☁️ <b>서버 연동 모드:</b> 위치를 찍으면 내 구글 드라이브의 <b>my_gis_pins.csv</b> 파일에 실시간으로 데이터가 누적 저장됩니다.
     </div>
 
-    <input type="text" id="pinName" placeholder="핀 이름 입력 (예: 교량A_지점1)"><br>
+    <input type="text" id="pinName" placeholder="핀 이름 입력 (예: 조사지점A)"><br>
     <button class="btn-add" id="addBtn" onclick="addCurrentLocation()">현재 위치 핀 찍기</button>
-    <button class="btn-down" onclick="downloadCSV()">CSV 파일 다운로드</button>
 
-    <div class="pin-list-title">지정된 위치 목록</div>
-    <div id="pinContainer">
-        </div>
+    <div class="pin-list-title">오늘 수집한 목록 (기기 임시저장)</div>
+    <div id="pinContainer"></div>
 
-    <button class="btn-clear" onclick="clearAllData()">전체 데이터 초기화</button>
+    <button class="btn-clear" onclick="clearAllData()">화면 목록 비우기</button>
 </div>
 
 <script>
-    let pinList = JSON.parse(localStorage.getItem('myGisPins_Local')) || [];
-    
-    // 시작 시 리스트 그려주기
+    // ⚠️여기에 1단계에서 복사한 구글 웹 앱 URL을 붙여넣으세요.
+    const SCRIPT_URL = "여기에_복사한_웹_앱_URL을_넣으세요";
+
+    let pinList = JSON.parse(localStorage.getItem('myGisPins_ServerMode')) || [];
     updateList();
 
     function addCurrentLocation() {
@@ -71,27 +70,45 @@
             const lat = position.coords.latitude;
             const lng = position.coords.longitude;
 
-            pinList.push({ name, lat, lng });
-            
+            // 로컬 디바이스에 먼저 상태 저장
+            const newPin = { name, lat, lng, uploaded: false };
+            pinList.push(newPin);
             saveToStorage();
             updateList();
             
             nameInput.value = '';
             addBtn.disabled = false;
             addBtn.innerText = "현재 위치 핀 찍기";
+
+            // 구글 드라이브 CSV 서버로 전송
+            uploadToServer(newPin, pinList.length - 1);
+
         }, (err) => {
             alert("GPS 위치 수집 실패: " + err.message);
             addBtn.disabled = false;
             addBtn.innerText = "현재 위치 핀 찍기";
-        }, { 
-            enableHighAccuracy: true,
-            timeout: 10000,
-            maximumAge: 0
-        });
+        }, { enableHighAccuracy: true });
+    }
+
+    function uploadToServer(pinData, index) {
+        if (!SCRIPT_URL || SCRIPT_URL.includes("여기에")) return;
+
+        fetch(SCRIPT_URL, {
+            method: 'POST',
+            mode: 'no-cors',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name: pinData.name, lat: pinData.lat, lng: pinData.lng })
+        })
+        .then(() => {
+            pinList[index].uploaded = true;
+            saveToStorage();
+            updateList();
+        })
+        .catch(err => console.error("서버 저장 실패:", err));
     }
 
     function deletePin(index) {
-        if (confirm(`'${pinList[index].name}' 위치를 삭제하시겠습니까?`)) {
+        if (confirm(`'${pinList[index].name}' 항목을 화면에서 제거하시겠습니까?\n(⚠️ 주의: 이미 서버 CSV에 저장된 데이터는 구글 드라이브에서 직접 지워야 합니다.)`)) {
             pinList.splice(index, 1);
             saveToStorage();
             updateList();
@@ -99,7 +116,7 @@
     }
 
     function clearAllData() {
-        if (confirm("⚠️ 저장된 모든 데이터를 삭제하시겠습니까?\n삭제 후에는 복구가 불가능합니다.")) {
+        if (confirm("화면 목록을 청소하시겠습니까?\n(서버에 저장된 CSV 파일은 안전하게 유지됩니다.)")) {
             pinList = [];
             saveToStorage();
             updateList();
@@ -107,14 +124,12 @@
     }
 
     function saveToStorage() {
-        localStorage.setItem('myGisPins_Local', JSON.stringify(pinList));
+        localStorage.setItem('myGisPins_ServerMode', JSON.stringify(pinList));
     }
 
-    // 테이블 대신 직관적인 div 카드 구조로 목록을 생성
     function updateList() {
         const container = document.getElementById('pinContainer');
         const countBadge = document.getElementById('pinCount');
-        
         container.innerHTML = '';
         countBadge.innerText = pinList.length;
 
@@ -124,41 +139,22 @@
         }
 
         pinList.forEach((pin, index) => {
-            // 정렬 오류나 스크립트 오작동을 최소화하는 안전한 innerHTML 구조
             const card = document.createElement('div');
             card.className = 'pin-card';
             
+            const statusHtml = pin.uploaded 
+                ? '<span class="status-badge status-ok">서버저장완료</span>' 
+                : '<span class="status-badge status-ready">전송중...</span>';
+
             card.innerHTML = `
                 <div class="pin-info">
-                    <div class="pin-title">${pin.name}</div>
+                    <div class="pin-title">${pin.name} ${statusHtml}</div>
                     <div class="pin-coords">Lat: ${pin.lat.toFixed(6)} / Lng: ${pin.lng.toFixed(6)}</div>
                 </div>
-                <button class="btn-delete" onclick="deletePin(${index})">삭제</button>
+                <button class="btn-delete" onclick="deletePin(${index})">제거</button>
             `;
-            
             container.appendChild(card);
         });
-    }
-
-    function downloadCSV() {
-        if (pinList.length === 0) {
-            alert("다운로드할 데이터가 없습니다.");
-            return;
-        }
-
-        let csvContent = "\uFEFFName,Latitude,Longitude\n";
-        pinList.forEach(pin => {
-            csvContent += `"${pin.name}",${pin.lat},${pin.lng}\n`;
-        });
-
-        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement("a");
-        link.setAttribute("href", url);
-        link.setAttribute("download", "my_gis_pins.csv");
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
     }
 </script>
 </body>
