@@ -1,0 +1,50 @@
+/**
+ * Google Apps Script 예시 (Drive에 my_gis_pins.csv 저장)
+ * 스크립트 편집기에 붙여넣고 웹 앱으로 배포하세요.
+ */
+
+function doOptions() {
+  return ContentService.createTextOutput('')
+    .setMimeType(ContentService.MimeType.TEXT);
+}
+
+function doPost(e) {
+  var rawData = e.postData ? e.postData.contents : null;
+  if (!rawData) {
+    return jsonOutput({ result: 'error', error: 'No data received' });
+  }
+
+  try {
+    var data = JSON.parse(rawData);
+    var MASTER_PASSWORD = 'admin@123';
+
+    if (data.password !== MASTER_PASSWORD) {
+      return jsonOutput({ result: 'error', error: 'Unauthorized' });
+    }
+
+    var fileName = 'my_gis_pins.csv';
+    var folder = DriveApp.getRootFolder();
+    var files = folder.getFilesByName(fileName);
+    var file;
+
+    if (files.hasNext()) {
+      file = files.next();
+    } else {
+      file = folder.createFile(fileName, '\uFEFFName,Latitude,Longitude\n', MimeType.PLAIN_TEXT);
+    }
+
+    var currentContent = file.getAs('text/string').getDataAsString();
+    var safeName = String(data.name).replace(/"/g, '""');
+    var newLine = '"' + safeName + '",' + data.lat + ',' + data.lng + '\n';
+    file.setContent(currentContent + newLine);
+
+    return jsonOutput({ result: 'success' });
+  } catch (error) {
+    return jsonOutput({ result: 'error', error: error.toString() });
+  }
+}
+
+function jsonOutput(obj) {
+  return ContentService.createTextOutput(JSON.stringify(obj))
+    .setMimeType(ContentService.MimeType.JSON);
+}

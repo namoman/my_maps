@@ -115,26 +115,38 @@
         }, { enableHighAccuracy: true });
     }
 
-    function uploadToServer(pinData, index) {
-        fetch(SCRIPT_URL, {
-            method: 'POST',
-            mode: 'no-cors',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ 
-                name: pinData.name, 
-                lat: pinData.lat, 
-                lng: pinData.lng,
-                password: userSessionPassword // 소스코드에 암호를 적지 않고 사용자가 입력한 값 활용
-            })
-        })
-        .then(() => {
-            pinList[index].uploaded = true;
-            saveToStorage();
-            updateList();
-        })
-        .catch(err => {
+    async function uploadToServer(pinData, index) {
+        try {
+            const response = await fetch(SCRIPT_URL, {
+                method: 'POST',
+                headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+                body: JSON.stringify({
+                    name: pinData.name,
+                    lat: pinData.lat,
+                    lng: pinData.lng,
+                    password: userSessionPassword
+                })
+            });
+
+            const result = await response.json();
+
+            if (result.result === 'success') {
+                pinList[index].uploaded = true;
+                pinList[index].uploadError = null;
+            } else {
+                pinList[index].uploaded = false;
+                pinList[index].uploadError = result.error || '저장 실패';
+                alert(`서버 저장 실패: ${pinList[index].uploadError}\n(비밀번호가 서버 설정과 일치하는지 확인하세요.)`);
+            }
+        } catch (err) {
             console.error("서버 전송 실패:", err);
-        });
+            pinList[index].uploaded = false;
+            pinList[index].uploadError = err.message || '네트워크 오류';
+            alert(`서버 전송 실패: ${pinList[index].uploadError}`);
+        }
+
+        saveToStorage();
+        updateList();
     }
 
     function deletePin(index) {
@@ -172,9 +184,14 @@
             const card = document.createElement('div');
             card.className = 'pin-card';
             
-            const statusHtml = pin.uploaded 
-                ? '<span class="status-badge status-ok">보안저장요청완료</span>' 
-                : '<span class="status-badge status-ready">인증처리중...</span>';
+            let statusHtml;
+            if (pin.uploaded) {
+                statusHtml = '<span class="status-badge status-ok">드라이브 저장 완료</span>';
+            } else if (pin.uploadError) {
+                statusHtml = `<span class="status-badge status-ready" title="${pin.uploadError}">저장 실패</span>`;
+            } else {
+                statusHtml = '<span class="status-badge status-ready">전송 중...</span>';
+            }
 
             card.innerHTML = `
                 <div class="pin-info">
