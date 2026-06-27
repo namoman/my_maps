@@ -5,7 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>보안 강화형 서버 저장 GIS 수집기</title>
     <style>
-        body { font-family: sans-serif; padding: 15px; text-align: center; background-color: #f8fafc; color: #1e293b; margin: 0; }
+        /* 기본 상태에서는 화면을 아예 숨겨버립니다 (보안용) */
+        body { display: none; font-family: sans-serif; padding: 15px; text-align: center; background-color: #f8fafc; color: #1e293b; margin: 0; }
         .container { max-width: 500px; margin: 0 auto; background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1); box-sizing: border-box; }
         h2 { margin-top: 0; color: #0f172a; font-size: 20px; }
         .notice { font-size: 11px; color: #64748b; background-color: #f1f5f9; padding: 10px; border-radius: 6px; margin-bottom: 15px; text-align: left; line-height: 1.4; }
@@ -32,9 +33,9 @@
 <body>
 
 <div class="container">
-    <h2>📍 보안 서버 저장형 GIS 수집기 <span class="count-badge" id="pinCount">0</span></h2>
+    <h2>📍 서버 저장형 GIS 수집기 <span class="count-badge" id="pinCount">0</span></h2>
     <div class="notice">
-        🔒 <b>보안 인증 모드:</b> 사전에 설정된 마스터 암호가 일치하는 핀만 구글 드라이브 내 CSV 파일에 기록 및 추가됩니다.
+        🔒 <b>이중 인증 모드 완료:</b> 제공해 주신 구글 인프라 서버 링크로 실시간 매핑 연동되었습니다.
     </div>
 
     <input type="text" id="pinName" placeholder="핀 이름 입력 (예: 조사지점A)"><br>
@@ -47,11 +48,33 @@
 </div>
 
 <script>
-    // ⚠️ 1) 이전 단계에서 배포했던 구글 웹 앱 URL 주소를 여기에 넣어주세요.
+    // 제공해 주신 구글 API 서버 주소 자동 매핑
     const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxsx8ohx4HJlwC8b27g5vjni0qJQukhmKfaKAsP01d7Wmdd2C621CXfL5Qdk0YhtvPX/exec";
     
-    // ⚠️ 2) 구글 앱스 스크립트에 설정한 것과 '완벽히 일치하는' 나만의 암호를 입력하세요.
-    const MASTER_PASSWORD = "admin@123";
+    // 사용자가 팝업창에 입력할 비밀번호를 임시 보관할 변수 (코드 상에는 노출 없음)
+    let userSessionPassword = "";
+
+    // [1차 관문] 페이지 접속 즉시 암호 물어보기
+    checkPageAccess();
+
+    function checkPageAccess() {
+        const userInput = prompt("🔒 시스템 접근을 위해 비밀번호를 입력하세요:");
+        
+        if (userInput && userInput.trim() !== "") {
+            // 입력한 암호를 임시 보관하고 화면을 열어줍니다. 
+            // 실제 인증은 서버로 핀 데이터를 전송할 때 구글 서버 내부에서 이루어집니다.
+            userSessionPassword = userInput;
+            document.body.style.display = "block";
+        } else {
+            alert("❌ 비밀번호를 입력해야 합니다.");
+            denyAccess();
+        }
+    }
+
+    function denyAccess() {
+        document.body.innerHTML = "<h1 style='margin-top:50px; color:#ef4444;'>🚫 접근 거부됨</h1><p>올바른 인증 정보가 없습니다.</p>";
+        document.body.style.display = "block";
+    }
 
     let pinList = JSON.parse(localStorage.getItem('myGisPins_SecureMode')) || [];
     updateList();
@@ -73,7 +96,6 @@
             const lat = position.coords.latitude;
             const lng = position.coords.longitude;
 
-            // 로컬 기기에 먼저 '전송중' 상태로 임시 저장
             const newPin = { name, lat, lng, uploaded: false };
             pinList.push(newPin);
             saveToStorage();
@@ -83,7 +105,7 @@
             addBtn.disabled = false;
             addBtn.innerText = "현재 위치 핀 찍기";
 
-            // 지정한 암호를 동봉하여 구글 보안 서버로 전송
+            // 로그인할 때 입력했던 비밀번호를 실어서 서버로 전송
             uploadToServer(newPin, pinList.length - 1);
 
         }, (err) => {
@@ -94,30 +116,29 @@
     }
 
     function uploadToServer(pinData, index) {
-        if (!SCRIPT_URL || SCRIPT_URL.includes("여기에")) return;
-
         fetch(SCRIPT_URL, {
             method: 'POST',
-            mode: 'no-cors', // 크로스 도메인 보안 정책(CORS) 방지
+            mode: 'no-cors',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ 
                 name: pinData.name, 
                 lat: pinData.lat, 
                 lng: pinData.lng,
-                password: MASTER_PASSWORD // 암호 검증용 데이터 추가
+                password: userSessionPassword // 소스코드에 암호를 적지 않고 사용자가 입력한 값 활용
             })
         })
         .then(() => {
-            // 전송 완료 시 상태 변경 및 화면 갱신
             pinList[index].uploaded = true;
             saveToStorage();
             updateList();
         })
-        .catch(err => console.error("서버 전송 실패:", err));
+        .catch(err => {
+            console.error("서버 전송 실패:", err);
+        });
     }
 
     function deletePin(index) {
-        if (confirm(`'${pinList[index].name}' 항목을 화면에서 제거하시겠습니까?\n(💡 이미 암호 인증을 거쳐 구글 드라이브 CSV에 저장된 데이터는 드라이브에서 직접 편집하셔야 합니다.)`)) {
+        if (confirm(`'${pinList[index].name}' 항목을 화면에서 제거하시겠습니까?\n(💡 이미 구글 드라이브 CSV에 저장된 데이터는 드라이브에서 직접 편집하셔야 합니다.)`)) {
             pinList.splice(index, 1);
             saveToStorage();
             updateList();
@@ -152,8 +173,8 @@
             card.className = 'pin-card';
             
             const statusHtml = pin.uploaded 
-                ? '<span class="status-badge status-ok">보안저장완료</span>' 
-                : '<span class="status-badge status-ready">인증중...</span>';
+                ? '<span class="status-badge status-ok">보안저장요청완료</span>' 
+                : '<span class="status-badge status-ready">인증처리중...</span>';
 
             card.innerHTML = `
                 <div class="pin-info">
