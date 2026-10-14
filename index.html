@@ -11,12 +11,15 @@
         table { width: 100%; margin-top: 20px; border-collapse: collapse; }
         th, td { border: 1px solid #ddd; padding: 8px; text-align: center; }
         #map { width: 100%; height: 400px; margin-top: 20px; border-radius: 8px; text-align: left; }
+        #presetSelect { padding: 10px; width: 80%; font-size: 16px; margin-bottom: 8px; }
+        #pinName { padding: 10px; width: 80%; font-size: 16px; }
     </style>
 </head>
 <body>
 
     <h2>📍 내 위치 GIS 핀 수집기</h2>
-    <input type="text" id="pinName" placeholder="핀 이름 입력 (예: 조사지점A)" style="padding: 10px; width: 80%; font-size: 16px;"><br>
+    <select id="presetSelect"></select><br>
+    <input type="text" id="pinName" placeholder="또는 직접 입력 (입력하면 프리셋보다 우선)"><br>
     <button onclick="addCurrentLocation()">현재 위치 핀 찍기</button>
     <button onclick="downloadCSV()" style="background-color: #4CAF50; color: white;">CSV 다운로드</button>
 
@@ -37,7 +40,51 @@
     <script>
         let pinList = [];
 
-        // 지도 초기화 (기본: 대한민국 전경)
+        // ===== 핀 이름 프리셋 =====
+        // 월미바다열차 정기안전점검 자료 기준 (교각.상부 정리.pdf)
+        // F/R이 있는 교각 번호 (총 31개): 상부거더·하부교각 표에서 -F/-R로 표기된 교각
+        const STATIONS = ['101역', '102역', '103역', '104역'];
+        const FR_PIERS = new Set([
+            37, 40, 43, 46, 49, 52, 56, 59, 62, 65, 68,
+            80, 84, 88, 91, 94,
+            103, 106, 109, 112, 115, 118, 121, 124,
+            130, 133, 137, 140, 143, 146, 149
+        ]);
+        const PIER_MAX = 152;
+
+        const presetSelect = document.getElementById('presetSelect');
+        const nameInput = document.getElementById('pinName');
+
+        function buildPresets() {
+            const stGroup = document.createElement('optgroup');
+            stGroup.label = '역';
+            STATIONS.forEach(s => {
+                const opt = document.createElement('option');
+                opt.value = s; opt.textContent = s;
+                stGroup.appendChild(opt);
+            });
+            presetSelect.appendChild(stGroup);
+
+            const pierGroup = document.createElement('optgroup');
+            pierGroup.label = '교각';
+            for (let n = 1; n <= PIER_MAX; n++) {
+                if (FR_PIERS.has(n)) {
+                    ['F', 'R'].forEach(suffix => {
+                        const opt = document.createElement('option');
+                        opt.value = `P${n}${suffix}`; opt.textContent = `P${n}${suffix}`;
+                        pierGroup.appendChild(opt);
+                    });
+                } else {
+                    const opt = document.createElement('option');
+                    opt.value = `P${n}`; opt.textContent = `P${n}`;
+                    pierGroup.appendChild(opt);
+                }
+            }
+            presetSelect.appendChild(pierGroup);
+        }
+        buildPresets();
+
+        // ===== 지도 초기화 (기본: 대한민국 전경) =====
         const map = L.map('map').setView([36.5, 127.9], 7);
         L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
             maxZoom: 19,
@@ -45,8 +92,8 @@
         }).addTo(map);
 
         function addCurrentLocation() {
-            const nameInput = document.getElementById('pinName');
-            const name = nameInput.value.trim() || `포인트_${pinList.length + 1}`;
+            // 직접 입력이 있으면 우선, 없으면 프리셋 사용
+            const name = nameInput.value.trim() || presetSelect.value || `포인트_${pinList.length + 1}`;
 
             if (!navigator.geolocation) {
                 alert("이 브라우저는 GPS를 지원하지 않습니다.");
