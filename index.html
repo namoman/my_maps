@@ -3,206 +3,108 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>보안 강화형 서버 저장 GIS 수집기</title>
+    <title>간이 GIS 핀 수집기</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
     <style>
-        /* 기본 상태에서는 화면을 아예 숨겨버립니다 (보안용) */
-        body { display: none; font-family: sans-serif; padding: 15px; text-align: center; background-color: #f8fafc; color: #1e293b; margin: 0; }
-        .container { max-width: 500px; margin: 0 auto; background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1); box-sizing: border-box; }
-        h2 { margin-top: 0; color: #0f172a; font-size: 20px; }
-        .notice { font-size: 11px; color: #64748b; background-color: #f1f5f9; padding: 10px; border-radius: 6px; margin-bottom: 15px; text-align: left; line-height: 1.4; }
-        input { padding: 14px; width: 100%; font-size: 16px; margin-bottom: 12px; border: 1px solid #cbd5e1; border-radius: 6px; box-sizing: border-box; }
-        button { padding: 14px 24px; font-size: 16px; margin: 5px 0; cursor: pointer; border: none; border-radius: 6px; font-weight: bold; width: 100%; box-sizing: border-box; }
-        .btn-add { background-color: #2563eb; color: white; }
-        .btn-add:active { background-color: #1d4ed8; }
-        .btn-clear { background-color: #94a3b8; color: white; font-size: 13px; padding: 8px; margin-top: 20px; width: auto; display: inline-block; }
-        
-        .pin-list-title { text-align: left; font-weight: bold; margin-top: 20px; color: #475569; border-bottom: 2px solid #e2e8f0; padding-bottom: 5px; }
-        #pinContainer { margin-top: 10px; text-align: left; }
-        .pin-card { background: #f8fafc; border: 1px solid #e2e8f0; padding: 12px; border-radius: 8px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; }
-        .pin-info { flex: 1; }
-        .pin-title { font-weight: bold; font-size: 15px; color: #0f172a; margin-bottom: 4px; }
-        .pin-coords { font-size: 12px; color: #64748b; font-family: monospace; }
-        .status-badge { font-size: 11px; padding: 2px 6px; border-radius: 4px; font-weight: normal; margin-left: 5px; }
-        .status-ok { background-color: #dcfce7; color: #166534; }
-        .status-ready { background-color: #fee2e2; color: #991b1b; }
-        .btn-delete { background-color: #ef4444; color: white; padding: 8px 14px; font-size: 13px; border-radius: 6px; width: auto; font-weight: bold; margin-left: 10px; }
-        .no-data { color: #94a3b8; font-style: italic; text-align: center; padding: 20px; }
-        .count-badge { background-color: #e2e8f0; padding: 2px 8px; border-radius: 10px; font-size: 14px; }
+        body { font-family: sans-serif; padding: 20px; text-align: center; }
+        button { padding: 15px 30px; font-size: 16px; margin: 10px; cursor: pointer; }
+        table { width: 100%; margin-top: 20px; border-collapse: collapse; }
+        th, td { border: 1px solid #ddd; padding: 8px; text-align: center; }
+        #map { width: 100%; height: 400px; margin-top: 20px; border-radius: 8px; text-align: left; }
     </style>
 </head>
 <body>
 
-<div class="container">
-    <h2>📍 서버 저장형 GIS 수집기 <span class="count-badge" id="pinCount">0</span></h2>
-    <div class="notice">
-        🔒 <b>이중 인증 모드 완료:</b> 제공해 주신 구글 인프라 서버 링크로 실시간 매핑 연동되었습니다.
-    </div>
+    <h2>📍 내 위치 GIS 핀 수집기</h2>
+    <input type="text" id="pinName" placeholder="핀 이름 입력 (예: 조사지점A)" style="padding: 10px; width: 80%; font-size: 16px;"><br>
+    <button onclick="addCurrentLocation()">현재 위치 핀 찍기</button>
+    <button onclick="downloadCSV()" style="background-color: #4CAF50; color: white;">CSV 다운로드</button>
 
-    <input type="text" id="pinName" placeholder="핀 이름 입력 (예: 조사지점A)"><br>
-    <button class="btn-add" id="addBtn" onclick="addCurrentLocation()">현재 위치 핀 찍기</button>
+    <div id="map"></div>
 
-    <div class="pin-list-title">오늘 수집한 목록 (기기 임시저장)</div>
-    <div id="pinContainer"></div>
+    <table id="logTable">
+        <thead>
+            <tr>
+                <th>이름</th>
+                <th>위도(Latitude)</th>
+                <th>경도(Longitude)</th>
+            </tr>
+        </thead>
+        <tbody></tbody>
+    </table>
 
-    <button class="btn-clear" onclick="clearAllData()">화면 목록 비우기</button>
-</div>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script>
+        let pinList = [];
 
-<script>
-    // 제공해 주신 구글 API 서버 주소 자동 매핑
-    const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxsx8ohx4HJlwC8b27g5vjni0qJQukhmKfaKAsP01d7Wmdd2C621CXfL5Qdk0YhtvPX/exec";
-    
-    // 사용자가 팝업창에 입력할 비밀번호를 임시 보관할 변수 (코드 상에는 노출 없음)
-    let userSessionPassword = "";
+        // 지도 초기화 (기본: 대한민국 전경)
+        const map = L.map('map').setView([36.5, 127.9], 7);
+        L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            maxZoom: 19,
+            attribution: '&copy; OpenStreetMap contributors'
+        }).addTo(map);
 
-    // [1차 관문] 페이지 접속 즉시 암호 물어보기
-    checkPageAccess();
+        function addCurrentLocation() {
+            const nameInput = document.getElementById('pinName');
+            const name = nameInput.value.trim() || `포인트_${pinList.length + 1}`;
 
-    function checkPageAccess() {
-        const userInput = prompt("🔒 시스템 접근을 위해 비밀번호를 입력하세요:");
-        
-        if (userInput && userInput.trim() !== "") {
-            // 입력한 암호를 임시 보관하고 화면을 열어줍니다. 
-            // 실제 인증은 서버로 핀 데이터를 전송할 때 구글 서버 내부에서 이루어집니다.
-            userSessionPassword = userInput;
-            document.body.style.display = "block";
-        } else {
-            alert("❌ 비밀번호를 입력해야 합니다.");
-            denyAccess();
+            if (!navigator.geolocation) {
+                alert("이 브라우저는 GPS를 지원하지 않습니다.");
+                return;
+            }
+
+            navigator.geolocation.getCurrentPosition((position) => {
+                const lat = position.coords.latitude;
+                const lng = position.coords.longitude;
+
+                // 리스트에 추가
+                pinList.push({ name, lat, lng });
+
+                // 지도에 마커 추가
+                L.marker([lat, lng])
+                    .addTo(map)
+                    .bindPopup(`<b>${name}</b><br>${lat.toFixed(6)}, ${lng.toFixed(6)}`)
+                    .openPopup();
+
+                // 모든 핀이 한 화면에 보이도록 범위 조정
+                const bounds = L.latLngBounds(pinList.map(p => [p.lat, p.lng]));
+                map.fitBounds(bounds, { padding: [30, 30], maxZoom: 17 });
+
+                // 테이블에 표시
+                const tbody = document.getElementById('logTable').querySelector('tbody');
+                const row = `<tr><td>${name}</td><td>${lat}</td><td>${lng}</td></tr>`;
+                tbody.innerHTML += row;
+
+                // 초기화
+                nameInput.value = '';
+                alert(`[${name}] 핀이 성공적으로 찍혔습니다.`);
+            }, (err) => {
+                alert("GPS 위치를 가져오는데 실패했습니다: " + err.message);
+            }, { enableHighAccuracy: true });
         }
-    }
 
-    function denyAccess() {
-        document.body.innerHTML = "<h1 style='margin-top:50px; color:#ef4444;'>🚫 접근 거부됨</h1><p>올바른 인증 정보가 없습니다.</p>";
-        document.body.style.display = "block";
-    }
+        function downloadCSV() {
+            if (pinList.length === 0) {
+                alert("다운로드할 데이터가 없습니다.");
+                return;
+            }
 
-    let pinList = JSON.parse(localStorage.getItem('myGisPins_SecureMode')) || [];
-    updateList();
+            // 구글 맵 인식용 헤더 설정 (BOM 추가로 한글 깨짐 방지)
+            let csvContent = "\uFEFFName,Latitude,Longitude\n";
 
-    function addCurrentLocation() {
-        const nameInput = document.getElementById('pinName');
-        const name = nameInput.value.trim() || `포인트_${pinList.length + 1}`;
-        const addBtn = document.getElementById('addBtn');
-
-        if (!navigator.geolocation) {
-            alert("이 브라우저는 GPS를 지원하지 않습니다.");
-            return;
-        }
-
-        addBtn.disabled = true;
-        addBtn.innerText = "🌐 GPS 신호 수신 중...";
-
-        navigator.geolocation.getCurrentPosition((position) => {
-            const lat = position.coords.latitude;
-            const lng = position.coords.longitude;
-
-            const newPin = { name, lat, lng, uploaded: false };
-            pinList.push(newPin);
-            saveToStorage();
-            updateList();
-            
-            nameInput.value = '';
-            addBtn.disabled = false;
-            addBtn.innerText = "현재 위치 핀 찍기";
-
-            // 로그인할 때 입력했던 비밀번호를 실어서 서버로 전송
-            uploadToServer(newPin, pinList.length - 1);
-
-        }, (err) => {
-            alert("GPS 위치 수집 실패: " + err.message);
-            addBtn.disabled = false;
-            addBtn.innerText = "현재 위치 핀 찍기";
-        }, { enableHighAccuracy: true });
-    }
-
-    async function uploadToServer(pinData, index) {
-        try {
-            const response = await fetch(SCRIPT_URL, {
-                method: 'POST',
-                headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-                body: JSON.stringify({
-                    name: pinData.name,
-                    lat: pinData.lat,
-                    lng: pinData.lng,
-                    password: userSessionPassword
-                })
+            pinList.forEach(pin => {
+                csvContent += `"${pin.name}",${pin.lat},${pin.lng}\n`;
             });
 
-            const result = await response.json();
-
-            if (result.result === 'success') {
-                pinList[index].uploaded = true;
-                pinList[index].uploadError = null;
-            } else {
-                pinList[index].uploaded = false;
-                pinList[index].uploadError = result.error || '저장 실패';
-                alert(`서버 저장 실패: ${pinList[index].uploadError}\n(비밀번호가 서버 설정과 일치하는지 확인하세요.)`);
-            }
-        } catch (err) {
-            console.error("서버 전송 실패:", err);
-            pinList[index].uploaded = false;
-            pinList[index].uploadError = err.message || '네트워크 오류';
-            alert(`서버 전송 실패: ${pinList[index].uploadError}`);
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement("a");
+            link.setAttribute("href", url);
+            link.setAttribute("download", "my_gis_pins.csv");
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
         }
-
-        saveToStorage();
-        updateList();
-    }
-
-    function deletePin(index) {
-        if (confirm(`'${pinList[index].name}' 항목을 화면에서 제거하시겠습니까?\n(💡 이미 구글 드라이브 CSV에 저장된 데이터는 드라이브에서 직접 편집하셔야 합니다.)`)) {
-            pinList.splice(index, 1);
-            saveToStorage();
-            updateList();
-        }
-    }
-
-    function clearAllData() {
-        if (confirm("화면 목록을 깨끗이 청소하시겠습니까?\n(서버에 누적된 CSV 파일은 안전하게 유지됩니다.)")) {
-            pinList = [];
-            saveToStorage();
-            updateList();
-        }
-    }
-
-    function saveToStorage() {
-        localStorage.setItem('myGisPins_SecureMode', JSON.stringify(pinList));
-    }
-
-    function updateList() {
-        const container = document.getElementById('pinContainer');
-        const countBadge = document.getElementById('pinCount');
-        container.innerHTML = '';
-        countBadge.innerText = pinList.length;
-
-        if (pinList.length === 0) {
-            container.innerHTML = '<div class="no-data">등록된 위치 정보가 없습니다.</div>';
-            return;
-        }
-
-        pinList.forEach((pin, index) => {
-            const card = document.createElement('div');
-            card.className = 'pin-card';
-            
-            let statusHtml;
-            if (pin.uploaded) {
-                statusHtml = '<span class="status-badge status-ok">드라이브 저장 완료</span>';
-            } else if (pin.uploadError) {
-                statusHtml = `<span class="status-badge status-ready" title="${pin.uploadError}">저장 실패</span>`;
-            } else {
-                statusHtml = '<span class="status-badge status-ready">전송 중...</span>';
-            }
-
-            card.innerHTML = `
-                <div class="pin-info">
-                    <div class="pin-title">${pin.name} ${statusHtml}</div>
-                    <div class="pin-coords">Lat: ${pin.lat.toFixed(6)} / Lng: ${pin.lng.toFixed(6)}</div>
-                </div>
-                <button class="btn-delete" onclick="deletePin(${index})">제거</button>
-            `;
-            container.appendChild(card);
-        });
-    }
-</script>
+    </script>
 </body>
 </html>
