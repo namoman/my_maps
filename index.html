@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>간이 GIS 핀 수집기</title>
+    <title>월미바다열차 교각 GPS 등록페이지</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
     <style>
         body { font-family: sans-serif; padding: 20px; text-align: center; }
@@ -12,12 +12,25 @@
         th, td { border: 1px solid #ddd; padding: 8px; text-align: center; }
         #map { width: 100%; height: 400px; margin-top: 20px; border-radius: 8px; text-align: left; }
         #presetSelect { padding: 10px; width: 80%; font-size: 16px; margin-bottom: 8px; }
-        #pinName { padding: 10px; width: 80%; font-size: 16px; }
+        #gateInput { padding: 10px; width: 80%; font-size: 16px; margin-bottom: 8px; }
     </style>
 </head>
 <body>
 
-    <h2>📍 내 위치 GIS 핀 수집기</h2>
+    <!-- 비밀번호 게이트 -->
+    <div id="gate" style="max-width:400px; margin:80px auto; text-align:center;">
+        <h2>🔒 월미바다열차 교각 GPS 등록페이지</h2>
+        <p>작업에 필요한 비밀번호입니다.</p>
+        <input type="password" id="gateInput" placeholder="비밀번호 입력" style="padding:12px; width:70%; font-size:16px;"><br>
+        <button onclick="checkPassword()" style="margin-top:12px;">확인</button>
+        <p id="gateError" style="color:red; display:none;">비밀번호가 틀렸습니다.</p>
+        <p id="gateLoading" style="color:#666; margin-top:8px;">설정 파일을 불러오는 중...</p>
+    </div>
+
+    <!-- 본문 (비밀번호 확인 후 표시) -->
+    <div id="main" style="display:none;">
+
+        <h2>📍 월미바다열차 교각 GPS 등록페이지</h2>
     <select id="presetSelect"></select><br>
     <input type="text" id="pinName" placeholder="또는 직접 입력 (입력하면 프리셋보다 우선)"><br>
     <button onclick="addCurrentLocation()">현재 위치 핀 찍기</button>
@@ -39,11 +52,53 @@
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script>
         let pinList = [];
+        let map = null;
 
-        // ===== 핀 이름 프리셋 =====
-        // 월미바다열차 정기안전점검 자료 기준 (교각.상부 정리.pdf)
-        // F/R이 있는 교각 번호 (총 32개): 상부거더·하부교각 표에서 -F/-R로 표기된 교각
-        // ※ P127은 PDF에 F/R 표기 누락이나 0.100m R구간 패턴으로 확인됨 (사용자 확인)
+        // ===== 비밀번호 게이트 - config.json(base64) 에서 비동기로 로드 =====
+        let PAGE_PASSWORD = null;
+
+        async function loadConfig() {
+            try {
+                const resp = await fetch('config.json');
+                const cfg = await resp.json();
+                PAGE_PASSWORD = atob(cfg.password);
+                document.getElementById('gateLoading').style.display = 'none';
+            } catch {
+                document.getElementById('gateLoading').textContent = '설정 파일 로드에 실패했습니다.';
+                document.getElementById('gateLoading').style.color = 'red';
+            }
+        }
+
+        function checkPassword() {
+            const input = document.getElementById('gateInput');
+            if (input.value === PAGE_PASSWORD) {
+                sessionStorage.setItem('wolmi_auth', '1');
+                unlock();
+            } else {
+                document.getElementById('gateError').style.display = 'block';
+                input.value = '';
+                input.focus();
+            }
+        }
+
+        function unlock() {
+            document.getElementById('gate').style.display = 'none';
+            document.getElementById('main').style.display = 'block';
+            buildPresets();
+            initMap();
+        }
+
+        // ===== 지도 초기화 (게이트 통과 후 실행) =====
+        function initMap() {
+            if (map) return;
+            map = L.map('map').setView([37.4690, 126.6130], 16);
+            L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                maxZoom: 19,
+                attribution: '&copy; OpenStreetMap contributors'
+            }).addTo(map);
+        }
+
+        // ===== 핀 이름 프리셋 (게이트 통과 후 빌드) =====
         const STATIONS = ['101역', '102역', '103역', '104역'];
         const FR_PIERS = new Set([
             37, 40, 43, 46, 49, 52, 56, 59, 62, 65, 68,
@@ -53,10 +108,13 @@
         ]);
         const PIER_MAX = 152;
 
-        const presetSelect = document.getElementById('presetSelect');
-        const nameInput = document.getElementById('pinName');
+        let nameInput, presetSelect;
 
         function buildPresets() {
+            if (presetSelect) return; // 이미 빌드됨
+            presetSelect = document.getElementById('presetSelect');
+            nameInput = document.getElementById('pinName');
+
             const stGroup = document.createElement('optgroup');
             stGroup.label = '역';
             STATIONS.forEach(s => {
@@ -83,14 +141,21 @@
             }
             presetSelect.appendChild(pierGroup);
         }
-        buildPresets();
 
-        // ===== 지도 초기화 (기본: 대한민국 전경) =====
-        const map = L.map('map').setView([36.5, 127.9], 7);
-        L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-            maxZoom: 19,
-            attribution: '&copy; OpenStreetMap contributors'
-        }).addTo(map);
+        document.getElementById('gateInput').addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') checkPassword();
+        });
+
+        if (sessionStorage.getItem('wolmi_auth') === '1' && PAGE_PASSWORD) {
+            unlock();
+        } else {
+            loadConfig().then(() => {
+                if (!PAGE_PASSWORD && !document.getElementById('gateLoading').textContent.includes('실패')) return;
+                if (PAGE_PASSWORD) {
+                    document.getElementById('gateInput').focus();
+                }
+            });
+        }
 
         function addCurrentLocation() {
             // 직접 입력이 있으면 우선, 없으면 프리셋 사용
