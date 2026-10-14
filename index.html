@@ -71,6 +71,21 @@
 
         function checkPassword() {
             const input = document.getElementById('gateInput');
+            if (!PAGE_PASSWORD) {
+                // config.json 이 아직 로드되지 않음 — 먼저 로드 시작
+                loadConfig().then(() => {
+                    if (input.value === PAGE_PASSWORD) {
+                        sessionStorage.setItem('wolmi_auth', '1');
+                        unlock();
+                    } else {
+                        document.getElementById('gateError').style.display = 'block';
+                        input.value = '';
+                        input.focus();
+                    }
+                });
+                return;
+            }
+            // 이미 로드됨 — 바로 검증
             if (input.value === PAGE_PASSWORD) {
                 sessionStorage.setItem('wolmi_auth', '1');
                 unlock();
