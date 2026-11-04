@@ -1,5 +1,31 @@
 # my_maps Walkthrough
 
+## 2026-11-04 — Firebase Firestore 핀 저장/불러오기
+
+### 배경
+
+하루이틀 현장용으로 새로고침·기기 전환 시에도 핀이 남도록 서버 저장이 필요함.
+GitHub Pages는 정적 호스팅이라 쓰기 불가 → Firebase Firestore 연동.
+
+### 변경
+
+- `index.html`: Firebase compat SDK + Firestore
+  - 게이트 통과 후 `pins` 컬렉션을 `createdAt` 순으로 로드 → 지도/표 표시
+  - 「현재 위치 핀 찍기」 시 Firestore에 먼저 저장 성공한 뒤 UI 반영
+- `firestore.rules`: 단기용 규칙 (read/create만, update/delete 금지)
+
+### 콘솔에서 할 일
+
+1. Firebase 콘솔 → Firestore Database **만들기** (아직 없으면)
+2. Rules 탭에 `firestore.rules` 내용 게시
+3. GitHub에 push하면 Pages에 반영 (또는 로컬에서 바로 테스트)
+
+### 보안 메모
+
+- 클라이언트 `apiKey` 노출은 Firebase 기본 동작
+- 페이지 게이트와 Firestore Rules는 별개 → Rules가 실제 쓰기 방어선
+- 작업 끝나면 Rules를 잠그거나 프로젝트/데이터를 정리하는 것을 권장
+
 ## 2026-06-27 — GAS 연동 실패 진단 및 index.html 수정
 
 ### 증상

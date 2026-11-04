@@ -50,9 +50,24 @@
     </table>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
     <script>
         let pinList = [];
         let map = null;
+        let pinsLoaded = false;
+
+        // ===== Firebase (Firestore) =====
+        firebase.initializeApp({
+            apiKey: "AIzaSyDPD86Li9H4LkwF4To2OMasvE3uJ_21hPA",
+            authDomain: "mymaps-4858d.firebaseapp.com",
+            projectId: "mymaps-4858d",
+            storageBucket: "mymaps-4858d.firebasestorage.app",
+            messagingSenderId: "994084650008",
+            appId: "1:994084650008:web:7ad7acc00757490666976d",
+            measurementId: "G-27S3SBF50L"
+        });
+        const db = firebase.firestore();
 
         // ===== 비밀번호 게이트 - config.json(base64) 에서 비동기로 로드 =====
         let PAGE_PASSWORD = null;
@@ -101,6 +116,7 @@
             document.getElementById('main').style.display = 'block';
             buildPresets();
             initMap();
+            loadPinsFromFirestore();
         }
 
         // ===== 지도 초기화 (게이트 통과 후 실행) =====
@@ -111,6 +127,51 @@
                 maxZoom: 19,
                 attribution: '&copy; OpenStreetMap contributors'
             }).addTo(map);
+        }
+
+        function fitAllPins() {
+            if (!map || pinList.length === 0) return;
+            const bounds = L.latLngBounds(pinList.map(p => [p.lat, p.lng]));
+            map.fitBounds(bounds, { padding: [30, 30], maxZoom: 17 });
+        }
+
+        function addPinToUI(name, lat, lng, openPopup) {
+            pinList.push({ name, lat, lng });
+
+            const marker = L.marker([lat, lng])
+                .addTo(map)
+                .bindPopup(`<b>${name}</b><br>${lat.toFixed(6)}, ${lng.toFixed(6)}`);
+            if (openPopup) marker.openPopup();
+
+            const tbody = document.getElementById('logTable').querySelector('tbody');
+            tbody.innerHTML += `<tr><td>${name}</td><td>${lat}</td><td>${lng}</td></tr>`;
+        }
+
+        async function loadPinsFromFirestore() {
+            if (pinsLoaded) return;
+            pinsLoaded = true;
+            try {
+                const snap = await db.collection('pins').orderBy('createdAt', 'asc').get();
+                snap.forEach((docSnap) => {
+                    const d = docSnap.data();
+                    if (typeof d.lat !== 'number' || typeof d.lng !== 'number') return;
+                    addPinToUI(String(d.name || '포인트'), d.lat, d.lng, false);
+                });
+                fitAllPins();
+            } catch (err) {
+                pinsLoaded = false;
+                console.error('Firestore load failed', err);
+                alert('저장된 핀을 불러오지 못했습니다: ' + err.message);
+            }
+        }
+
+        async function savePinToFirestore(name, lat, lng) {
+            await db.collection('pins').add({
+                name,
+                lat,
+                lng,
+                createdAt: firebase.firestore.FieldValue.serverTimestamp()
+            });
         }
 
         // ===== 핀 이름 프리셋 (게이트 통과 후 빌드) =====
@@ -181,31 +242,20 @@
                 return;
             }
 
-            navigator.geolocation.getCurrentPosition((position) => {
+            navigator.geolocation.getCurrentPosition(async (position) => {
                 const lat = position.coords.latitude;
                 const lng = position.coords.longitude;
 
-                // 리스트에 추가
-                pinList.push({ name, lat, lng });
-
-                // 지도에 마커 추가
-                L.marker([lat, lng])
-                    .addTo(map)
-                    .bindPopup(`<b>${name}</b><br>${lat.toFixed(6)}, ${lng.toFixed(6)}`)
-                    .openPopup();
-
-                // 모든 핀이 한 화면에 보이도록 범위 조정
-                const bounds = L.latLngBounds(pinList.map(p => [p.lat, p.lng]));
-                map.fitBounds(bounds, { padding: [30, 30], maxZoom: 17 });
-
-                // 테이블에 표시
-                const tbody = document.getElementById('logTable').querySelector('tbody');
-                const row = `<tr><td>${name}</td><td>${lat}</td><td>${lng}</td></tr>`;
-                tbody.innerHTML += row;
-
-                // 초기화
-                nameInput.value = '';
-                alert(`[${name}] 핀이 성공적으로 찍혔습니다.`);
+                try {
+                    await savePinToFirestore(name, lat, lng);
+                    addPinToUI(name, lat, lng, true);
+                    fitAllPins();
+                    nameInput.value = '';
+                    alert(`[${name}] 핀이 저장되었습니다.`);
+                } catch (err) {
+                    console.error('Firestore save failed', err);
+                    alert('서버 저장에 실패했습니다: ' + err.message);
+                }
             }, (err) => {
                 alert("GPS 위치를 가져오는데 실패했습니다: " + err.message);
             }, { enableHighAccuracy: true });
