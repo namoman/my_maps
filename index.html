@@ -3,6 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
     <title>월미바다열차 교각 GPS 등록페이지</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
     <style>
@@ -54,6 +57,33 @@
     <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
     <script>
+        // 배포할 때마다 version.json 과 같이 올릴 것
+        const APP_VERSION = '20261104-3';
+        let versionReloadScheduled = false;
+
+        async function checkAppVersion() {
+            if (versionReloadScheduled) return;
+            try {
+                const resp = await fetch('version.json?t=' + Date.now(), { cache: 'no-store' });
+                if (!resp.ok) return;
+                const data = await resp.json();
+                if (data.v && data.v !== APP_VERSION) {
+                    versionReloadScheduled = true;
+                    const url = new URL(location.href);
+                    url.searchParams.set('_v', data.v);
+                    location.replace(url.toString());
+                }
+            } catch (err) {
+                console.warn('version check failed', err);
+            }
+        }
+
+        setInterval(checkAppVersion, 10000);
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'visible') checkAppVersion();
+        });
+        setTimeout(checkAppVersion, 2000);
+
         let pinList = [];
         let map = null;
         let myLocationMarker = null;
