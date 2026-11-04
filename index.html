@@ -16,6 +16,31 @@
         #map { width: 100%; height: 400px; margin-top: 20px; border-radius: 8px; text-align: left; }
         #presetSelect { padding: 10px; width: 80%; font-size: 16px; margin-bottom: 8px; }
         #gateInput { padding: 10px; width: 80%; font-size: 16px; margin-bottom: 8px; }
+        #adjustPanel {
+            display: none;
+            max-width: 420px;
+            margin: 12px auto;
+            padding: 12px;
+            border: 2px solid #FF9800;
+            border-radius: 8px;
+            background: #FFF8E1;
+            text-align: center;
+        }
+        #adjustPanel .nudge-grid {
+            display: grid;
+            grid-template-columns: 64px 64px 64px;
+            grid-template-rows: 48px 48px 48px;
+            gap: 6px;
+            justify-content: center;
+            margin: 10px 0;
+        }
+        #adjustPanel .nudge-grid button {
+            padding: 0;
+            margin: 0;
+            font-size: 20px;
+            min-width: 64px;
+        }
+        #adjustCoords { font-size: 13px; color: #555; word-break: break-all; }
     </style>
 </head>
 <body>
@@ -36,9 +61,38 @@
         <h2>📍 월미바다열차 교각 GPS 등록페이지</h2>
     <select id="presetSelect"></select><br>
     <input type="text" id="pinName" placeholder="또는 직접 입력 (입력하면 프리셋보다 우선)"><br>
-    <button onclick="addCurrentLocation()">현재 위치 핀 찍기</button>
+    <button id="btnStartPin" onclick="addCurrentLocation()">현재 위치 핀 찍기</button>
     <button onclick="goToMyLocation()" style="background-color: #2196F3; color: white;">내 위치로 이동 (실시간)</button>
     <button onclick="downloadCSV()" style="background-color: #4CAF50; color: white;">CSV 다운로드</button>
+
+    <div id="adjustPanel">
+        <strong id="adjustTitle">위치 미세 조정</strong>
+        <p style="margin:8px 0; font-size:14px;">마커를 드래그하거나, 지도를 탭하거나, 아래 버튼으로 조금씩 옮긴 뒤 저장하세요.</p>
+        <div id="adjustCoords"></div>
+        <div class="nudge-grid">
+            <span></span>
+            <button type="button" onclick="nudgeDraft(0, 1)" aria-label="북으로">▲</button>
+            <span></span>
+            <button type="button" onclick="nudgeDraft(-1, 0)" aria-label="서로">◀</button>
+            <button type="button" onclick="nudgeDraft(0, 0)" title="GPS로 되돌리기" style="font-size:12px;">GPS</button>
+            <button type="button" onclick="nudgeDraft(1, 0)" aria-label="동으로">▶</button>
+            <span></span>
+            <button type="button" onclick="nudgeDraft(0, -1)" aria-label="남으로">▼</button>
+            <span></span>
+        </div>
+        <label style="font-size:14px;">이동 간격
+            <select id="nudgeStep">
+                <option value="0.00001">약 1m</option>
+                <option value="0.00002" selected>약 2m</option>
+                <option value="0.00005">약 5m</option>
+                <option value="0.0001">약 10m</option>
+            </select>
+        </label>
+        <div style="margin-top:12px;">
+            <button type="button" onclick="confirmDraftPin()" style="background-color:#FF9800; color:white;">이 위치로 저장</button>
+            <button type="button" onclick="cancelDraftPin()">취소</button>
+        </div>
+    </div>
 
     <div id="map"></div>
 
@@ -58,7 +112,7 @@
     <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
     <script>
         // 배포할 때마다 version.json 과 같이 올릴 것
-        const APP_VERSION = '20261104-3';
+        const APP_VERSION = '20261104-4';
         let versionReloadScheduled = false;
 
         async function checkAppVersion() {
@@ -94,6 +148,11 @@
         const seenPinIds = new Set();
         let unsubscribePins = null;
         let unsubscribeLive = null;
+        let draftMarker = null;
+        let draftName = '';
+        let draftGpsLat = null;
+        let draftGpsLng = null;
+        let mapClickBound = false;
 
         // ===== Firebase (Firestore) =====
         firebase.initializeApp({
@@ -409,8 +468,112 @@
             startLiveTracking(true);
         }
 
+        function updateAdjustCoords() {
+            if (!draftMarker) return;
+            const ll = draftMarker.getLatLng();
+            document.getElementById('adjustCoords').textContent =
+                `조정 위치: ${ll.lat.toFixed(6)}, ${ll.lng.toFixed(6)}` +
+                (draftGpsLat != null
+                    ? `  (GPS: ${draftGpsLat.toFixed(6)}, ${draftGpsLng.toFixed(6)})`
+                    : '');
+            draftMarker.setPopupContent(
+                `<b>${draftName}</b><br>드래그/탭으로 조정<br>${ll.lat.toFixed(6)}, ${ll.lng.toFixed(6)}`
+            );
+        }
+
+        function setAdjustMode(active) {
+            document.getElementById('adjustPanel').style.display = active ? 'block' : 'none';
+            document.getElementById('btnStartPin').disabled = active;
+            if (active && !mapClickBound && map) {
+                mapClickBound = true;
+                map.on('click', onMapClickWhileAdjusting);
+            }
+        }
+
+        function onMapClickWhileAdjusting(e) {
+            if (!draftMarker) return;
+            draftMarker.setLatLng(e.latlng);
+            updateAdjustCoords();
+        }
+
+        function clearDraftMarker() {
+            if (draftMarker && map) {
+                map.removeLayer(draftMarker);
+            }
+            draftMarker = null;
+            draftName = '';
+            draftGpsLat = null;
+            draftGpsLng = null;
+            setAdjustMode(false);
+        }
+
+        function startAdjustMode(name, lat, lng) {
+            clearDraftMarker();
+            draftName = name;
+            draftGpsLat = lat;
+            draftGpsLng = lng;
+            document.getElementById('adjustTitle').textContent = `[${name}] 위치 미세 조정`;
+
+            draftMarker = L.marker([lat, lng], {
+                draggable: true,
+                autoPan: true
+            }).addTo(map);
+            draftMarker.bindPopup(
+                `<b>${name}</b><br>드래그/탭으로 조정<br>${lat.toFixed(6)}, ${lng.toFixed(6)}`
+            ).openPopup();
+            draftMarker.on('dragend', updateAdjustCoords);
+
+            map.setView([lat, lng], Math.max(map.getZoom(), 18));
+            updateAdjustCoords();
+            setAdjustMode(true);
+        }
+
+        function nudgeDraft(dirLng, dirLat) {
+            if (!draftMarker) return;
+            // 가운데 GPS 버튼: 원래 GPS로 복귀
+            if (dirLng === 0 && dirLat === 0) {
+                if (draftGpsLat == null) return;
+                draftMarker.setLatLng([draftGpsLat, draftGpsLng]);
+                updateAdjustCoords();
+                return;
+            }
+            const step = Number(document.getElementById('nudgeStep').value) || 0.00002;
+            const ll = draftMarker.getLatLng();
+            draftMarker.setLatLng([ll.lat + dirLat * step, ll.lng + dirLng * step]);
+            updateAdjustCoords();
+        }
+
+        function cancelDraftPin() {
+            clearDraftMarker();
+        }
+
+        async function confirmDraftPin() {
+            if (!draftMarker) return;
+            const ll = draftMarker.getLatLng();
+            const name = draftName;
+            const lat = ll.lat;
+            const lng = ll.lng;
+
+            try {
+                const id = await savePinToFirestore(name, lat, lng);
+                seenPinIds.add(id);
+                clearDraftMarker();
+                addPinToUI(name, lat, lng, true);
+                fitAllPins();
+                nameInput.value = '';
+                alert(`[${name}] 핀이 저장되었습니다.`);
+            } catch (err) {
+                console.error('Firestore save failed', err);
+                alert('서버 저장에 실패했습니다: ' + err.message);
+            }
+        }
+
         function addCurrentLocation() {
-            // 직접 입력이 있으면 우선, 없으면 프리셋 사용
+            if (draftMarker) {
+                alert('이미 위치 조정 중입니다. 저장하거나 취소하세요.');
+                return;
+            }
+
             const name = nameInput.value.trim() || presetSelect.value || `포인트_${pinList.length + 1}`;
 
             if (!navigator.geolocation) {
@@ -418,22 +581,12 @@
                 return;
             }
 
-            navigator.geolocation.getCurrentPosition(async (position) => {
-                const lat = position.coords.latitude;
-                const lng = position.coords.longitude;
-
-                try {
-                    const id = await savePinToFirestore(name, lat, lng);
-                    // onSnapshot 중복 추가 방지: 내 핀은 여기서 바로 UI 반영
-                    seenPinIds.add(id);
-                    addPinToUI(name, lat, lng, true);
-                    fitAllPins();
-                    nameInput.value = '';
-                    alert(`[${name}] 핀이 저장되었습니다.`);
-                } catch (err) {
-                    console.error('Firestore save failed', err);
-                    alert('서버 저장에 실패했습니다: ' + err.message);
-                }
+            navigator.geolocation.getCurrentPosition((position) => {
+                startAdjustMode(
+                    name,
+                    position.coords.latitude,
+                    position.coords.longitude
+                );
             }, (err) => {
                 alert("GPS 위치를 가져오는데 실패했습니다: " + err.message);
             }, { enableHighAccuracy: true });
