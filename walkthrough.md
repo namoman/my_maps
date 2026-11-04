@@ -1,5 +1,16 @@
 # my_maps Walkthrough
 
+## 2026-11-04 — 새로고침 시 로그인 세션 풀림 수정
+
+### 원인
+
+`sessionStorage`에 `wolmi_auth`가 있어도, 부트 시점에 `PAGE_PASSWORD`가 아직 `null`이라 복원 분기가 항상 실패함.
+`loadConfig()` 이후에도 세션 체크 없이 비밀번호 입력만 focus 했음.
+
+### 수정
+
+- 항상 `loadConfig()` 후 `wolmi_auth === '1'`이면 `unlock()` (`APP_VERSION` 20261104-5)
+
 ## 2026-11-04 — GPS 오차 보정(위치 미세 조정)
 
 ### 배경

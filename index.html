@@ -112,7 +112,7 @@
     <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
     <script>
         // 배포할 때마다 version.json 과 같이 올릴 것
-        const APP_VERSION = '20261104-4';
+        const APP_VERSION = '20261104-5';
         let versionReloadScheduled = false;
 
         async function checkAppVersion() {
@@ -327,16 +327,15 @@
             if (e.key === 'Enter') checkPassword();
         });
 
-        if (sessionStorage.getItem('wolmi_auth') === '1' && PAGE_PASSWORD) {
-            unlock();
-        } else {
-            loadConfig().then(() => {
-                if (!PAGE_PASSWORD && !document.getElementById('gateLoading').textContent.includes('실패')) return;
-                if (PAGE_PASSWORD) {
-                    document.getElementById('gateInput').focus();
-                }
-            });
-        }
+        // 새로고침 시 sessionStorage 세션 복원 (PAGE_PASSWORD는 loadConfig 이후에만 존재)
+        loadConfig().then(() => {
+            if (!PAGE_PASSWORD) return;
+            if (sessionStorage.getItem('wolmi_auth') === '1') {
+                unlock();
+                return;
+            }
+            document.getElementById('gateInput').focus();
+        });
 
         function getClientId() {
             let id = localStorage.getItem('wolmi_client_id');
