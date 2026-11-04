@@ -112,7 +112,7 @@
     <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
     <script>
         // 배포할 때마다 version.json 과 같이 올릴 것
-        const APP_VERSION = '20261104-5';
+        const APP_VERSION = '20261104-6';
         let versionReloadScheduled = false;
 
         async function checkAppVersion() {
@@ -167,45 +167,88 @@
         const db = firebase.firestore();
 
         // ===== 비밀번호 게이트 - config.json(base64) 에서 비동기로 로드 =====
+        // 모바일은 탭 복원 시 sessionStorage가 비는 경우가 많아 localStorage 사용
+        const AUTH_KEY = 'wolmi_auth';
+        const AUTH_PW_KEY = 'wolmi_auth_pw';
         let PAGE_PASSWORD = null;
 
-        async function loadConfig() {
-            try {
-                const resp = await fetch('config.json');
-                const cfg = await resp.json();
-                PAGE_PASSWORD = atob(cfg.password);
-                document.getElementById('gateLoading').style.display = 'none';
-            } catch {
-                document.getElementById('gateLoading').textContent = '설정 파일 로드에 실패했습니다.';
-                document.getElementById('gateLoading').style.color = 'red';
+        function passwordToken(password) {
+            return btoa(unescape(encodeURIComponent(String(password || ''))));
+        }
+
+        function persistAuth() {
+            localStorage.setItem(AUTH_KEY, '1');
+            localStorage.setItem(AUTH_PW_KEY, passwordToken(PAGE_PASSWORD));
+            try { sessionStorage.removeItem(AUTH_KEY); } catch (_) { /* ignore */ }
+        }
+
+        function clearAuth() {
+            localStorage.removeItem(AUTH_KEY);
+            localStorage.removeItem(AUTH_PW_KEY);
+            try { sessionStorage.removeItem(AUTH_KEY); } catch (_) { /* ignore */ }
+        }
+
+        function hasValidStoredAuth() {
+            // 구버전 sessionStorage → localStorage 이관
+            if (sessionStorage.getItem(AUTH_KEY) === '1' && localStorage.getItem(AUTH_KEY) !== '1') {
+                localStorage.setItem(AUTH_KEY, '1');
             }
+            if (localStorage.getItem(AUTH_KEY) !== '1') return false;
+            const saved = localStorage.getItem(AUTH_PW_KEY);
+            // 예전 세션(비번 토큰 없음): 현재 비번으로 보강 후 유지
+            if (!saved) {
+                localStorage.setItem(AUTH_PW_KEY, passwordToken(PAGE_PASSWORD));
+                return true;
+            }
+            if (saved !== passwordToken(PAGE_PASSWORD)) {
+                clearAuth();
+                return false;
+            }
+            return true;
+        }
+
+        async function loadConfig() {
+            const loading = document.getElementById('gateLoading');
+            let lastError = null;
+            for (let attempt = 1; attempt <= 3; attempt++) {
+                try {
+                    const resp = await fetch('config.json?t=' + Date.now(), { cache: 'no-store' });
+                    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+                    const cfg = await resp.json();
+                    PAGE_PASSWORD = atob(cfg.password);
+                    loading.style.display = 'none';
+                    return true;
+                } catch (err) {
+                    lastError = err;
+                    await new Promise((r) => setTimeout(r, 400 * attempt));
+                }
+            }
+            console.error('config load failed', lastError);
+            loading.textContent = '설정 파일 로드에 실패했습니다. 잠시 후 다시 시도하세요.';
+            loading.style.color = 'red';
+            return false;
         }
 
         function checkPassword() {
             const input = document.getElementById('gateInput');
+            const tryUnlock = () => {
+                if (input.value === PAGE_PASSWORD) {
+                    persistAuth();
+                    unlock();
+                } else {
+                    document.getElementById('gateError').style.display = 'block';
+                    input.value = '';
+                    input.focus();
+                }
+            };
             if (!PAGE_PASSWORD) {
-                // config.json 이 아직 로드되지 않음 — 먼저 로드 시작
-                loadConfig().then(() => {
-                    if (input.value === PAGE_PASSWORD) {
-                        sessionStorage.setItem('wolmi_auth', '1');
-                        unlock();
-                    } else {
-                        document.getElementById('gateError').style.display = 'block';
-                        input.value = '';
-                        input.focus();
-                    }
+                loadConfig().then((ok) => {
+                    if (!ok) return;
+                    tryUnlock();
                 });
                 return;
             }
-            // 이미 로드됨 — 바로 검증
-            if (input.value === PAGE_PASSWORD) {
-                sessionStorage.setItem('wolmi_auth', '1');
-                unlock();
-            } else {
-                document.getElementById('gateError').style.display = 'block';
-                input.value = '';
-                input.focus();
-            }
+            tryUnlock();
         }
 
         function unlock() {
@@ -327,10 +370,10 @@
             if (e.key === 'Enter') checkPassword();
         });
 
-        // 새로고침 시 sessionStorage 세션 복원 (PAGE_PASSWORD는 loadConfig 이후에만 존재)
-        loadConfig().then(() => {
-            if (!PAGE_PASSWORD) return;
-            if (sessionStorage.getItem('wolmi_auth') === '1') {
+        // 새로고침/탭 복원 시 localStorage 세션 복원
+        loadConfig().then((ok) => {
+            if (!ok) return;
+            if (hasValidStoredAuth()) {
                 unlock();
                 return;
             }

@@ -1,5 +1,19 @@
 # my_maps Walkthrough
 
+## 2026-11-04 — 로그인 세션 재수정 (localStorage)
+
+### 원인
+
+1. 초기엔 `loadConfig` 전에 session 복원을 시도해 실패
+2. 이후에도 `sessionStorage` 사용 → 모바일 탭 폐기/복원 시 자주 소실 → 다시 로그인 화면
+
+### 수정 (`APP_VERSION` 20261104-6)
+
+- 인증을 `localStorage`로 저장 (탭 닫았다 열어도 유지)
+- 비밀번호 토큰(`wolmi_auth_pw`) 저장 → 비번 변경 시에만 재로그인
+- 구 `sessionStorage` 세션은 localStorage로 이관
+- `config.json`은 `cache: no-store` + 최대 3회 재시도
+
 ## 2026-11-04 — 새로고침 시 로그인 세션 풀림 수정
 
 ### 원인
