@@ -1,5 +1,25 @@
 # my_maps Walkthrough
 
+## 2026-11-04 — 내 위치 실시간 표기 (+ 다른 작업자 공유)
+
+### 배경
+
+핀이 많아지면 지도가 넓게 맞춰져 현재 GPS 위치를 찾기 어려움.
+여러 명이 동시에 움직일 때 서로의 현재 위치도 지도에 보여야 함.
+
+### 변경
+
+- `index.html`
+  - 게이트 통과 후 `watchPosition`으로 내 GPS 연속 갱신 (파란 원)
+  - `liveLocations/{clientId}`에 약 2초 간격으로 위치 기록
+  - `onSnapshot`으로 다른 작업자 위치 표시 (주황 원)
+  - 「내 위치로 이동」은 추적 시작 + 지도 중심 이동
+- `firestore.rules`: `liveLocations` read/create/update 허용 추가
+
+### 콘솔
+
+Rules를 다시 게시해야 실시간 위치 쓰기가 동작함.
+
 ## 2026-11-04 — Firebase Firestore 핀 저장/불러오기 + 실시간 동기화
 
 ### 배경

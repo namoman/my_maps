@@ -10,5 +10,14 @@ service cloud.firestore {
                     && request.resource.data.lng is number;
       allow update, delete: if false;
     }
+
+    // 작업자 실시간 위치 (문서 ID = 기기별 clientId)
+    match /liveLocations/{clientId} {
+      allow read: if true;
+      allow create, update: if request.resource.data.keys().hasAll(['lat', 'lng', 'updatedAt'])
+                             && request.resource.data.lat is number
+                             && request.resource.data.lng is number;
+      allow delete: if true;
+    }
   }
 }

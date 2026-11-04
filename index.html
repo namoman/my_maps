@@ -34,6 +34,7 @@
     <select id="presetSelect"></select><br>
     <input type="text" id="pinName" placeholder="또는 직접 입력 (입력하면 프리셋보다 우선)"><br>
     <button onclick="addCurrentLocation()">현재 위치 핀 찍기</button>
+    <button onclick="goToMyLocation()" style="background-color: #2196F3; color: white;">내 위치로 이동 (실시간)</button>
     <button onclick="downloadCSV()" style="background-color: #4CAF50; color: white;">CSV 다운로드</button>
 
     <div id="map"></div>
@@ -55,8 +56,14 @@
     <script>
         let pinList = [];
         let map = null;
+        let myLocationMarker = null;
+        let watchId = null;
+        let lastLiveWriteAt = 0;
+        const LIVE_WRITE_MS = 2000;
+        const otherLiveMarkers = new Map();
         const seenPinIds = new Set();
         let unsubscribePins = null;
+        let unsubscribeLive = null;
 
         // ===== Firebase (Firestore) =====
         firebase.initializeApp({
@@ -118,6 +125,8 @@
             buildPresets();
             initMap();
             subscribePins();
+            subscribeLiveLocations();
+            startLiveTracking(false);
         }
 
         // ===== 지도 초기화 (게이트 통과 후 실행) =====
@@ -238,6 +247,136 @@
                     document.getElementById('gateInput').focus();
                 }
             });
+        }
+
+        function getClientId() {
+            let id = localStorage.getItem('wolmi_client_id');
+            if (!id) {
+                id = (crypto.randomUUID && crypto.randomUUID())
+                    || ('c_' + Date.now() + '_' + Math.random().toString(36).slice(2, 10));
+                localStorage.setItem('wolmi_client_id', id);
+            }
+            return id;
+        }
+
+        function upsertMyMarker(lat, lng, centerMap) {
+            if (!map) return;
+            if (myLocationMarker) {
+                myLocationMarker.setLatLng([lat, lng]);
+            } else {
+                myLocationMarker = L.circleMarker([lat, lng], {
+                    radius: 8,
+                    color: '#1565C0',
+                    fillColor: '#2196F3',
+                    fillOpacity: 0.9,
+                    weight: 2
+                }).addTo(map);
+            }
+            myLocationMarker.bindPopup(
+                `내 위치 (실시간)<br>${lat.toFixed(6)}, ${lng.toFixed(6)}`
+            );
+            if (centerMap) {
+                map.setView([lat, lng], Math.max(map.getZoom(), 18));
+                myLocationMarker.openPopup();
+            }
+        }
+
+        function publishLiveLocation(lat, lng) {
+            const now = Date.now();
+            if (now - lastLiveWriteAt < LIVE_WRITE_MS) return;
+            lastLiveWriteAt = now;
+            db.collection('liveLocations').doc(getClientId()).set({
+                lat,
+                lng,
+                updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+            }, { merge: true }).catch((err) => {
+                console.error('live location write failed', err);
+            });
+        }
+
+        function upsertOtherLiveMarker(clientId, lat, lng) {
+            if (!map) return;
+            let marker = otherLiveMarkers.get(clientId);
+            if (marker) {
+                marker.setLatLng([lat, lng]);
+            } else {
+                marker = L.circleMarker([lat, lng], {
+                    radius: 7,
+                    color: '#E65100',
+                    fillColor: '#FF9800',
+                    fillOpacity: 0.9,
+                    weight: 2
+                }).addTo(map);
+                otherLiveMarkers.set(clientId, marker);
+            }
+            marker.bindPopup(
+                `다른 작업자<br>${lat.toFixed(6)}, ${lng.toFixed(6)}`
+            );
+        }
+
+        function subscribeLiveLocations() {
+            if (unsubscribeLive) return;
+            const myId = getClientId();
+            unsubscribeLive = db.collection('liveLocations').onSnapshot((snap) => {
+                snap.docChanges().forEach((change) => {
+                    const id = change.doc.id;
+                    if (id === myId) return;
+                    if (change.type === 'removed') {
+                        const marker = otherLiveMarkers.get(id);
+                        if (marker) {
+                            map.removeLayer(marker);
+                            otherLiveMarkers.delete(id);
+                        }
+                        return;
+                    }
+                    const d = change.doc.data();
+                    if (typeof d.lat !== 'number' || typeof d.lng !== 'number') return;
+                    upsertOtherLiveMarker(id, d.lat, d.lng);
+                });
+            }, (err) => {
+                console.error('live location subscribe failed', err);
+            });
+        }
+
+        function startLiveTracking(centerOnce) {
+            if (!map) return;
+            if (!navigator.geolocation) {
+                alert('이 브라우저는 GPS를 지원하지 않습니다.');
+                return;
+            }
+
+            if (watchId !== null) {
+                if (centerOnce && myLocationMarker) {
+                    const ll = myLocationMarker.getLatLng();
+                    map.setView(ll, Math.max(map.getZoom(), 18));
+                    myLocationMarker.openPopup();
+                }
+                return;
+            }
+
+            let shouldCenter = centerOnce;
+            watchId = navigator.geolocation.watchPosition((position) => {
+                const lat = position.coords.latitude;
+                const lng = position.coords.longitude;
+                upsertMyMarker(lat, lng, shouldCenter);
+                shouldCenter = false;
+                publishLiveLocation(lat, lng);
+            }, (err) => {
+                console.error('GPS watch failed', err);
+                alert('GPS 위치를 가져오는데 실패했습니다: ' + err.message);
+            }, {
+                enableHighAccuracy: true,
+                maximumAge: 1000,
+                timeout: 15000
+            });
+        }
+
+        function goToMyLocation() {
+            if (!map) {
+                alert('지도가 아직 준비되지 않았습니다.');
+                return;
+            }
+            startLiveTracking(true);
         }
 
         function addCurrentLocation() {
