@@ -55,7 +55,8 @@
     <script>
         let pinList = [];
         let map = null;
-        let pinsLoaded = false;
+        const seenPinIds = new Set();
+        let unsubscribePins = null;
 
         // ===== Firebase (Firestore) =====
         firebase.initializeApp({
@@ -116,7 +117,7 @@
             document.getElementById('main').style.display = 'block';
             buildPresets();
             initMap();
-            loadPinsFromFirestore();
+            subscribePins();
         }
 
         // ===== 지도 초기화 (게이트 통과 후 실행) =====
@@ -147,31 +148,37 @@
             tbody.innerHTML += `<tr><td>${name}</td><td>${lat}</td><td>${lng}</td></tr>`;
         }
 
-        async function loadPinsFromFirestore() {
-            if (pinsLoaded) return;
-            pinsLoaded = true;
-            try {
-                const snap = await db.collection('pins').orderBy('createdAt', 'asc').get();
-                snap.forEach((docSnap) => {
-                    const d = docSnap.data();
-                    if (typeof d.lat !== 'number' || typeof d.lng !== 'number') return;
-                    addPinToUI(String(d.name || '포인트'), d.lat, d.lng, false);
+        function subscribePins() {
+            if (unsubscribePins) return;
+            unsubscribePins = db.collection('pins')
+                .orderBy('createdAt', 'asc')
+                .onSnapshot((snap) => {
+                    let added = false;
+                    snap.docChanges().forEach((change) => {
+                        if (change.type !== 'added') return;
+                        const id = change.doc.id;
+                        if (seenPinIds.has(id)) return;
+                        seenPinIds.add(id);
+                        const d = change.doc.data();
+                        if (typeof d.lat !== 'number' || typeof d.lng !== 'number') return;
+                        addPinToUI(String(d.name || '포인트'), d.lat, d.lng, false);
+                        added = true;
+                    });
+                    if (added) fitAllPins();
+                }, (err) => {
+                    console.error('Firestore subscribe failed', err);
+                    alert('실시간 핀 동기화에 실패했습니다: ' + err.message);
                 });
-                fitAllPins();
-            } catch (err) {
-                pinsLoaded = false;
-                console.error('Firestore load failed', err);
-                alert('저장된 핀을 불러오지 못했습니다: ' + err.message);
-            }
         }
 
         async function savePinToFirestore(name, lat, lng) {
-            await db.collection('pins').add({
+            const ref = await db.collection('pins').add({
                 name,
                 lat,
                 lng,
                 createdAt: firebase.firestore.FieldValue.serverTimestamp()
             });
+            return ref.id;
         }
 
         // ===== 핀 이름 프리셋 (게이트 통과 후 빌드) =====
@@ -247,7 +254,9 @@
                 const lng = position.coords.longitude;
 
                 try {
-                    await savePinToFirestore(name, lat, lng);
+                    const id = await savePinToFirestore(name, lat, lng);
+                    // onSnapshot 중복 추가 방지: 내 핀은 여기서 바로 UI 반영
+                    seenPinIds.add(id);
                     addPinToUI(name, lat, lng, true);
                     fitAllPins();
                     nameInput.value = '';

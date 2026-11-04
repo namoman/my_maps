@@ -1,17 +1,18 @@
 # my_maps Walkthrough
 
-## 2026-11-04 — Firebase Firestore 핀 저장/불러오기
+## 2026-11-04 — Firebase Firestore 핀 저장/불러오기 + 실시간 동기화
 
 ### 배경
 
 하루이틀 현장용으로 새로고침·기기 전환 시에도 핀이 남도록 서버 저장이 필요함.
 GitHub Pages는 정적 호스팅이라 쓰기 불가 → Firebase Firestore 연동.
+여러 명이 동시에 찍을 때 서로 핀을 바로 볼 수 있어야 함 → `onSnapshot` 구독.
 
 ### 변경
 
 - `index.html`: Firebase compat SDK + Firestore
-  - 게이트 통과 후 `pins` 컬렉션을 `createdAt` 순으로 로드 → 지도/표 표시
-  - 「현재 위치 핀 찍기」 시 Firestore에 먼저 저장 성공한 뒤 UI 반영
+  - 게이트 통과 후 `pins` 컬렉션 `onSnapshot` 구독 (추가분 실시간 반영)
+  - 「현재 위치 핀 찍기」 시 Firestore 저장 후 UI 반영, `seenPinIds`로 스냅샷 중복 방지
 - `firestore.rules`: 단기용 규칙 (read/create만, update/delete 금지)
 
 ### 콘솔에서 할 일
