@@ -112,6 +112,7 @@
     <div id="pinLegend">
         <span><i class="dot" style="background:#2E7D32;"></i>역</span>
         <span><i class="dot" style="background:#C62828;"></i>교각(P)</span>
+        <span><i class="dot" style="background:#6A1B9A;"></i>교각 F/R</span>
         <span><i class="dot" style="background:#1565C0;"></i>기타</span>
     </div>
 
@@ -131,7 +132,7 @@
     <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
     <script>
         // 배포할 때마다 version.json 과 같이 올릴 것
-        const APP_VERSION = '20261106-2';
+        const APP_VERSION = '20261106-3';
         let versionReloadScheduled = false;
 
         async function checkAppVersion() {
@@ -300,12 +301,16 @@
         function pinKind(name) {
             const n = String(name || '').trim();
             if (/역$/.test(n) || /^10[1-4]역$/.test(n)) return 'station';
+            // P37F / P37R 형태 (F/R 교각)
+            if (/^P\d+[FRfr]$/.test(n)) return 'pier_fr';
             if (/^P\d+/i.test(n)) return 'pier';
             return 'other';
         }
 
         function pinIcon(kind) {
-            const color = kind === 'station' ? 'green' : (kind === 'pier' ? 'red' : 'blue');
+            const color = kind === 'station' ? 'green'
+                : (kind === 'pier_fr' ? 'violet'
+                : (kind === 'pier' ? 'red' : 'blue'));
             return L.icon({
                 iconUrl: `https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-${color}.png`,
                 shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png',
@@ -316,15 +321,22 @@
             });
         }
 
+        function pinKindLabel(kind) {
+            if (kind === 'station') return '역';
+            if (kind === 'pier_fr') return '교각 F/R';
+            if (kind === 'pier') return '교각';
+            return '기타';
+        }
+
         function pinPopupHtml(name, lat, lng) {
-            const kindLabel = pinKind(name) === 'station' ? '역'
-                : (pinKind(name) === 'pier' ? '교각' : '기타');
-            return `<b>${name}</b> <small>(${kindLabel})</small><br>${lat.toFixed(6)}, ${lng.toFixed(6)}<br><small>드래그하여 위치 수정</small>`;
+            const kind = pinKind(name);
+            return `<b>${name}</b> <small>(${pinKindLabel(kind)})</small><br>${lat.toFixed(6)}, ${lng.toFixed(6)}<br><small>드래그하여 위치 수정</small>`;
         }
 
         function nameCellColor(name) {
             const kind = pinKind(name);
             if (kind === 'station') return '#2E7D32';
+            if (kind === 'pier_fr') return '#6A1B9A';
             if (kind === 'pier') return '#C62828';
             return '#1565C0';
         }
