@@ -11,9 +11,54 @@
     <style>
         body { font-family: sans-serif; padding: 20px; text-align: center; }
         button { padding: 15px 30px; font-size: 16px; margin: 10px; cursor: pointer; }
-        table { width: 100%; margin-top: 20px; border-collapse: collapse; }
-        th, td { border: 1px solid #ddd; padding: 8px; text-align: center; }
-        #map { width: 100%; height: 400px; margin-top: 20px; border-radius: 8px; text-align: left; }
+        #mapSticky {
+            position: sticky;
+            top: 0;
+            z-index: 1000;
+            background: #fff;
+            padding-top: 8px;
+            padding-bottom: 4px;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+        }
+        #map { width: 100%; height: 360px; margin-top: 8px; border-radius: 8px; text-align: left; }
+        #tableWrap {
+            max-height: min(50vh, 420px);
+            overflow: auto;
+            margin-top: 12px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            -webkit-overflow-scrolling: touch;
+        }
+        #logTable {
+            width: 100%;
+            margin: 0;
+            border-collapse: separate;
+            border-spacing: 0;
+            min-width: 480px;
+        }
+        #logTable th, #logTable td {
+            border: 1px solid #ddd;
+            padding: 8px;
+            text-align: center;
+            background: #fff;
+        }
+        #logTable thead th {
+            position: sticky;
+            top: 0;
+            z-index: 2;
+            background: #f5f5f5;
+        }
+        #logTable th:first-child,
+        #logTable td:first-child {
+            position: sticky;
+            left: 0;
+            z-index: 1;
+            background: #fff;
+        }
+        #logTable thead th:first-child {
+            z-index: 3;
+            background: #f5f5f5;
+        }
         #presetSelect { padding: 10px; width: 80%; font-size: 16px; margin-bottom: 8px; }
         #gateInput { padding: 10px; width: 80%; font-size: 16px; margin-bottom: 8px; }
         #adjustPanel {
@@ -108,31 +153,35 @@
         </div>
     </div>
 
-    <div id="map"></div>
-    <div id="pinLegend">
-        <span><i class="dot" style="background:#2E7D32;"></i>역</span>
-        <span><i class="dot" style="background:#C62828;"></i>교각(P)</span>
-        <span><i class="dot" style="background:#6A1B9A;"></i>교각 F/R</span>
-        <span><i class="dot" style="background:#1565C0;"></i>기타</span>
+    <div id="mapSticky">
+        <div id="map"></div>
+        <div id="pinLegend">
+            <span><i class="dot" style="background:#2E7D32;"></i>역</span>
+            <span><i class="dot" style="background:#C62828;"></i>교각(P)</span>
+            <span><i class="dot" style="background:#6A1B9A;"></i>교각 F/R</span>
+            <span><i class="dot" style="background:#1565C0;"></i>기타</span>
+        </div>
     </div>
 
-    <table id="logTable">
-        <thead>
-            <tr>
-                <th>이름</th>
-                <th>위도(Latitude)</th>
-                <th>경도(Longitude)</th>
-            </tr>
-        </thead>
-        <tbody></tbody>
-    </table>
+    <div id="tableWrap">
+        <table id="logTable">
+            <thead>
+                <tr>
+                    <th>이름</th>
+                    <th>위도(Latitude)</th>
+                    <th>경도(Longitude)</th>
+                </tr>
+            </thead>
+            <tbody></tbody>
+        </table>
+    </div>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
     <script>
         // 배포할 때마다 version.json 과 같이 올릴 것
-        const APP_VERSION = '20261106-3';
+        const APP_VERSION = '20261106-4';
         let versionReloadScheduled = false;
 
         async function checkAppVersion() {
@@ -341,19 +390,20 @@
             return '#1565C0';
         }
 
-        function syncPinTableRow(id, name, lat, lng) {
-            const row = document.querySelector(`#logTable tbody tr[data-pin-id="${id}"]`);
-            if (row) {
-                row.cells[0].textContent = name;
-                row.cells[0].style.color = nameCellColor(name);
-                row.cells[0].style.fontWeight = '600';
-                row.cells[1].textContent = String(lat);
-                row.cells[2].textContent = String(lng);
-                return;
-            }
+        function comparePinName(a, b) {
+            return String(a).localeCompare(String(b), 'ko', { numeric: true, sensitivity: 'base' });
+        }
+
+        function sortedPins() {
+            return [...pinList].sort((a, b) => comparePinName(a.name, b.name));
+        }
+
+        function renderPinTable() {
             const tbody = document.getElementById('logTable').querySelector('tbody');
-            const color = nameCellColor(name);
-            tbody.innerHTML += `<tr data-pin-id="${id}"><td style="color:${color};font-weight:600;">${name}</td><td>${lat}</td><td>${lng}</td></tr>`;
+            tbody.innerHTML = sortedPins().map((pin) => {
+                const color = nameCellColor(pin.name);
+                return `<tr data-pin-id="${pin.id}"><td style="color:${color};font-weight:600;">${pin.name}</td><td>${pin.lat}</td><td>${pin.lng}</td></tr>`;
+            }).join('');
         }
 
         function applyPinPosition(id, name, lat, lng, openPopup) {
@@ -386,7 +436,7 @@
                 pinMarkers.set(id, marker);
             }
             if (openPopup) marker.openPopup();
-            syncPinTableRow(id, name, lat, lng);
+            renderPinTable();
         }
 
         function addPinToUI(id, name, lat, lng, openPopup) {
@@ -772,7 +822,7 @@
             // 구글 맵 인식용 헤더 설정 (BOM 추가로 한글 깨짐 방지)
             let csvContent = "\uFEFFName,Latitude,Longitude\n";
 
-            pinList.forEach(pin => {
+            sortedPins().forEach((pin) => {
                 csvContent += `"${pin.name}",${pin.lat},${pin.lng}\n`;
             });
 

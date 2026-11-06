@@ -1,5 +1,14 @@
 # my_maps Walkthrough
 
+## 2026-11-06 — 표 이름순 정렬 + 지도/헤더 고정 스크롤
+
+### 변경
+
+- 표·CSV를 이름 기준 자연 정렬 (`numeric` localeCompare)
+- 지도(+범례) `position: sticky`로 페이지 스크롤 시 상단 고정
+- 표 영역 내부 스크롤: 열 제목(thead)·행 제목(이름 열) sticky 고정
+- `APP_VERSION` 20261106-4
+
 ## 2026-11-06 — 역/교각/F·R 핀 색 구분
 
 ### 변경
