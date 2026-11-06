@@ -41,6 +41,20 @@
             min-width: 64px;
         }
         #adjustCoords { font-size: 13px; color: #555; word-break: break-all; }
+        #pinLegend {
+            margin: 8px auto 0;
+            font-size: 13px;
+            color: #444;
+        }
+        #pinLegend span { margin: 0 8px; white-space: nowrap; }
+        #pinLegend .dot {
+            display: inline-block;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            margin-right: 4px;
+            vertical-align: middle;
+        }
     </style>
 </head>
 <body>
@@ -95,6 +109,11 @@
     </div>
 
     <div id="map"></div>
+    <div id="pinLegend">
+        <span><i class="dot" style="background:#2E7D32;"></i>역</span>
+        <span><i class="dot" style="background:#C62828;"></i>교각(P)</span>
+        <span><i class="dot" style="background:#1565C0;"></i>기타</span>
+    </div>
 
     <table id="logTable">
         <thead>
@@ -112,7 +131,7 @@
     <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
     <script>
         // 배포할 때마다 version.json 과 같이 올릴 것
-        const APP_VERSION = '20261106-1';
+        const APP_VERSION = '20261106-2';
         let versionReloadScheduled = false;
 
         async function checkAppVersion() {
@@ -278,20 +297,51 @@
             map.fitBounds(bounds, { padding: [30, 30], maxZoom: 17 });
         }
 
+        function pinKind(name) {
+            const n = String(name || '').trim();
+            if (/역$/.test(n) || /^10[1-4]역$/.test(n)) return 'station';
+            if (/^P\d+/i.test(n)) return 'pier';
+            return 'other';
+        }
+
+        function pinIcon(kind) {
+            const color = kind === 'station' ? 'green' : (kind === 'pier' ? 'red' : 'blue');
+            return L.icon({
+                iconUrl: `https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-${color}.png`,
+                shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png',
+                iconSize: [25, 41],
+                iconAnchor: [12, 41],
+                popupAnchor: [1, -34],
+                shadowSize: [41, 41]
+            });
+        }
+
         function pinPopupHtml(name, lat, lng) {
-            return `<b>${name}</b><br>${lat.toFixed(6)}, ${lng.toFixed(6)}<br><small>드래그하여 위치 수정</small>`;
+            const kindLabel = pinKind(name) === 'station' ? '역'
+                : (pinKind(name) === 'pier' ? '교각' : '기타');
+            return `<b>${name}</b> <small>(${kindLabel})</small><br>${lat.toFixed(6)}, ${lng.toFixed(6)}<br><small>드래그하여 위치 수정</small>`;
+        }
+
+        function nameCellColor(name) {
+            const kind = pinKind(name);
+            if (kind === 'station') return '#2E7D32';
+            if (kind === 'pier') return '#C62828';
+            return '#1565C0';
         }
 
         function syncPinTableRow(id, name, lat, lng) {
             const row = document.querySelector(`#logTable tbody tr[data-pin-id="${id}"]`);
             if (row) {
                 row.cells[0].textContent = name;
+                row.cells[0].style.color = nameCellColor(name);
+                row.cells[0].style.fontWeight = '600';
                 row.cells[1].textContent = String(lat);
                 row.cells[2].textContent = String(lng);
                 return;
             }
             const tbody = document.getElementById('logTable').querySelector('tbody');
-            tbody.innerHTML += `<tr data-pin-id="${id}"><td>${name}</td><td>${lat}</td><td>${lng}</td></tr>`;
+            const color = nameCellColor(name);
+            tbody.innerHTML += `<tr data-pin-id="${id}"><td style="color:${color};font-weight:600;">${name}</td><td>${lat}</td><td>${lng}</td></tr>`;
         }
 
         function applyPinPosition(id, name, lat, lng, openPopup) {
@@ -304,12 +354,15 @@
                 pinList.push({ id, name, lat, lng });
             }
 
+            const icon = pinIcon(pinKind(name));
             let marker = pinMarkers.get(id);
             if (marker) {
                 marker.setLatLng([lat, lng]);
+                marker.setIcon(icon);
                 marker.setPopupContent(pinPopupHtml(name, lat, lng));
             } else {
                 marker = L.marker([lat, lng], {
+                    icon,
                     draggable: true,
                     autoPan: true
                 }).addTo(map);
