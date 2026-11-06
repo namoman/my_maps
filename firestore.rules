@@ -1,14 +1,19 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // 단기 현장용: 읽기/추가만 허용 (수정·삭제 금지)
+    // 단기 현장용: 읽기/추가 + 위치 수정 허용 (삭제는 금지)
     match /pins/{pinId} {
       allow read: if true;
       allow create: if request.resource.data.keys().hasAll(['name', 'lat', 'lng', 'createdAt'])
                     && request.resource.data.name is string
                     && request.resource.data.lat is number
                     && request.resource.data.lng is number;
-      allow update, delete: if false;
+      allow update: if request.resource.data.name is string
+                    && request.resource.data.lat is number
+                    && request.resource.data.lng is number
+                    && request.resource.data.name == resource.data.name
+                    && request.resource.data.createdAt == resource.data.createdAt;
+      allow delete: if false;
     }
 
     // 작업자 실시간 위치 (문서 ID = 기기별 clientId)

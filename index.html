@@ -112,7 +112,7 @@
     <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
     <script>
         // 배포할 때마다 version.json 과 같이 올릴 것
-        const APP_VERSION = '20261104-6';
+        const APP_VERSION = '20261106-1';
         let versionReloadScheduled = false;
 
         async function checkAppVersion() {
@@ -139,6 +139,7 @@
         setTimeout(checkAppVersion, 2000);
 
         let pinList = [];
+        const pinMarkers = new Map();
         let map = null;
         let myLocationMarker = null;
         let watchId = null;
@@ -277,16 +278,70 @@
             map.fitBounds(bounds, { padding: [30, 30], maxZoom: 17 });
         }
 
-        function addPinToUI(name, lat, lng, openPopup) {
-            pinList.push({ name, lat, lng });
+        function pinPopupHtml(name, lat, lng) {
+            return `<b>${name}</b><br>${lat.toFixed(6)}, ${lng.toFixed(6)}<br><small>드래그하여 위치 수정</small>`;
+        }
 
-            const marker = L.marker([lat, lng])
-                .addTo(map)
-                .bindPopup(`<b>${name}</b><br>${lat.toFixed(6)}, ${lng.toFixed(6)}`);
-            if (openPopup) marker.openPopup();
-
+        function syncPinTableRow(id, name, lat, lng) {
+            const row = document.querySelector(`#logTable tbody tr[data-pin-id="${id}"]`);
+            if (row) {
+                row.cells[0].textContent = name;
+                row.cells[1].textContent = String(lat);
+                row.cells[2].textContent = String(lng);
+                return;
+            }
             const tbody = document.getElementById('logTable').querySelector('tbody');
-            tbody.innerHTML += `<tr><td>${name}</td><td>${lat}</td><td>${lng}</td></tr>`;
+            tbody.innerHTML += `<tr data-pin-id="${id}"><td>${name}</td><td>${lat}</td><td>${lng}</td></tr>`;
+        }
+
+        function applyPinPosition(id, name, lat, lng, openPopup) {
+            const existing = pinList.find((p) => p.id === id);
+            if (existing) {
+                existing.name = name;
+                existing.lat = lat;
+                existing.lng = lng;
+            } else {
+                pinList.push({ id, name, lat, lng });
+            }
+
+            let marker = pinMarkers.get(id);
+            if (marker) {
+                marker.setLatLng([lat, lng]);
+                marker.setPopupContent(pinPopupHtml(name, lat, lng));
+            } else {
+                marker = L.marker([lat, lng], {
+                    draggable: true,
+                    autoPan: true
+                }).addTo(map);
+                marker.bindPopup(pinPopupHtml(name, lat, lng));
+                marker.on('dragend', () => {
+                    const ll = marker.getLatLng();
+                    updatePinPosition(id, ll.lat, ll.lng);
+                });
+                pinMarkers.set(id, marker);
+            }
+            if (openPopup) marker.openPopup();
+            syncPinTableRow(id, name, lat, lng);
+        }
+
+        function addPinToUI(id, name, lat, lng, openPopup) {
+            applyPinPosition(id, name, lat, lng, openPopup);
+        }
+
+        async function updatePinPosition(id, lat, lng) {
+            const pin = pinList.find((p) => p.id === id);
+            const name = pin ? pin.name : '포인트';
+            applyPinPosition(id, name, lat, lng, true);
+            try {
+                await db.collection('pins').doc(id).update({
+                    lat,
+                    lng,
+                    updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+                });
+            } catch (err) {
+                console.error('Firestore pin update failed', err);
+                alert('핀 위치 저장에 실패했습니다: ' + err.message);
+            }
         }
 
         function subscribePins() {
@@ -296,14 +351,23 @@
                 .onSnapshot((snap) => {
                     let added = false;
                     snap.docChanges().forEach((change) => {
-                        if (change.type !== 'added') return;
                         const id = change.doc.id;
-                        if (seenPinIds.has(id)) return;
-                        seenPinIds.add(id);
                         const d = change.doc.data();
                         if (typeof d.lat !== 'number' || typeof d.lng !== 'number') return;
-                        addPinToUI(String(d.name || '포인트'), d.lat, d.lng, false);
-                        added = true;
+                        const name = String(d.name || '포인트');
+
+                        if (change.type === 'added') {
+                            if (seenPinIds.has(id)) return;
+                            seenPinIds.add(id);
+                            addPinToUI(id, name, d.lat, d.lng, false);
+                            added = true;
+                            return;
+                        }
+
+                        if (change.type === 'modified') {
+                            seenPinIds.add(id);
+                            applyPinPosition(id, name, d.lat, d.lng, false);
+                        }
                     });
                     if (added) fitAllPins();
                 }, (err) => {
@@ -600,7 +664,7 @@
                 const id = await savePinToFirestore(name, lat, lng);
                 seenPinIds.add(id);
                 clearDraftMarker();
-                addPinToUI(name, lat, lng, true);
+                addPinToUI(id, name, lat, lng, true);
                 fitAllPins();
                 nameInput.value = '';
                 alert(`[${name}] 핀이 저장되었습니다.`);

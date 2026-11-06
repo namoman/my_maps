@@ -1,5 +1,23 @@
 # my_maps Walkthrough
 
+## 2026-11-06 — 저장된 GPS 핀 드래그로 위치 수정
+
+### 배경
+
+이미 저장된 핀도 GPS 오차 보정을 위해 지도에서 드래그해 옮길 수 있어야 함.
+
+### 변경
+
+- 저장된 핀 마커를 `draggable`로 표시
+- `dragend` 시 Firestore `pins/{id}`의 lat/lng 업데이트 + 표 동기화
+- 다른 기기 `onSnapshot` `modified`로 실시간 반영
+- `firestore.rules`: pins `update` 허용 (이름·createdAt 변경은 불가, 삭제 불가)
+- `APP_VERSION` 20261106-1
+
+### 콘솔
+
+Firebase Rules에 로컬 `firestore.rules`를 다시 게시해야 드래그 저장이 동작함.
+
 ## 2026-11-04 — 로그인 세션 재수정 (localStorage)
 
 ### 원인
